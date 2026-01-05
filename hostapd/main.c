@@ -1,3 +1,4 @@
+/* LOCAL_BUILD_TEST - 로컬 소스 빌드 확인용 주석 */
 /*
  * hostapd / main()
  * Copyright (c) 2002-2022, Jouni Malinen <j@w1.fi>

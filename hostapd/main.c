@@ -6,12 +6,12 @@
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
  */
-#ifdef PQC_ENABLED
+#ifdef CONFIG_PQC
 #include <oqs/oqs.h> //liboqs헤더 테스트
 #include <openssl/provider.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
-#endif /* PQC_ENABLED */
+#endif /* CONFIG_PQC */
 
 #include "utils/includes.h"
 #ifndef CONFIG_NATIVE_WINDOWS
@@ -815,7 +815,7 @@ static void hostapd_global_cleanup_mld(struct hapd_interfaces *interfaces)
 int main(int argc, char *argv[])
 {
   /* PQC Test Code Start */
-  #ifdef PQC_ENABLED
+  #ifdef CONFIG_PQC
     printf("========================================================\n");
     printf("[PQC Test] Starting OpenSSL OQS Provider Check...\n");
 
@@ -851,9 +851,9 @@ int main(int argc, char *argv[])
         // OSSL_PROVIDER_unload(oqsprov); 
     }
     printf("========================================================\n");
-  #endif /* PQC_ENABLED */
+  #endif /* CONFIG_PQC */
     /* PQC Test Code End */
-    
+
 	struct hapd_interfaces interfaces;
 	int ret = 1;
 	size_t i, j;

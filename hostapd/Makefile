@@ -319,6 +319,12 @@ NEED_SHA384=y
 NEED_SHA512=y
 endif
 
+#w1.fi의 makefile을 수정해 openwrt에서 PQC 빌드 옵션을 사용할 수 있게함. 추후 patch로 수정
+ifdef CONFIG_PQC
+CFLAGS += -DCONFIG_PQC
+LIBS += -loqs
+endif
+
 ifdef CONFIG_AIRTIME_POLICY
 CFLAGS += -DCONFIG_AIRTIME_POLICY
 OBJS += ../src/ap/airtime_policy.o

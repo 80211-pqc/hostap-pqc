@@ -822,7 +822,7 @@ int main(int argc, char *argv[])
     /* 1. oqsprovider 명시적 로드 시도 */
     // 원래는 openssl.cnf에서 설정하지만, 코드에서 강제로 불러와서 테스트함
     OSSL_PROVIDER *oqsprov = OSSL_PROVIDER_load(NULL, "oqsprovider");
-    
+
     if (oqsprov == NULL) {
         printf("[PQC Test] FAILED to load 'oqsprovider'.\n");
         ERR_print_errors_fp(stdout); // 에러 로그 출력
@@ -837,7 +837,7 @@ int main(int argc, char *argv[])
         /* 2. PQC 알고리즘(예: Kyber768)을 OpenSSL이 인식하는지 확인 */
         // Provider가 잘 연결됐다면, EVP_PKEY_CTX_new_from_name으로 알고리즘을 가져올 수 있어야 함
         EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(NULL, "kyber768", NULL);
-        
+
         if (ctx == NULL) {
             printf("[PQC Test] FAILED: OpenSSL cannot find 'kyber768' algorithm.\n");
             // oqsprovider는 로드됐는데 알고리즘이 없다면 이름 문제거나 초기화 문제
@@ -848,7 +848,7 @@ int main(int argc, char *argv[])
         }
 
         /* 3. 테스트 끝났으니 해제 (실제 런타임에선 해제하면 안 됨) */
-        // OSSL_PROVIDER_unload(oqsprov); 
+        OSSL_PROVIDER_unload(oqsprov);
     }
     printf("========================================================\n");
   #endif /* CONFIG_PQC */

@@ -6,7 +6,9 @@
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
  */
+#ifdef PQC_ENABLED
 #include <oqs/oqs.h> //liboqs헤더 테스트
+#endif /* PQC_ENABLED */
 
 #include "utils/includes.h"
 #ifndef CONFIG_NATIVE_WINDOWS
@@ -810,6 +812,7 @@ static void hostapd_global_cleanup_mld(struct hapd_interfaces *interfaces)
 int main(int argc, char *argv[])
 {
   /* PQC Test Code Start */
+  #ifdef PQC_ENABLED
     printf("[OpenWrt PQC Test] Initializing liboqs...\n");
 
     // liboqs 초기화 및 정보 출력 (가장 간단한 테스트)
@@ -820,6 +823,7 @@ int main(int argc, char *argv[])
     } else {
         printf("[OpenWrt PQC Test] Kyber-768 is NOT enabled.\n");
     }
+  #endif /* PQC_ENABLED */
     /* PQC Test Code End */
 	struct hapd_interfaces interfaces;
 	int ret = 1;

@@ -8,6 +8,9 @@
  */
 #ifdef PQC_ENABLED
 #include <oqs/oqs.h> //liboqs헤더 테스트
+#include <openssl/provider.h>
+#include <openssl/evp.h>
+#include <openssl/err.h>
 #endif /* PQC_ENABLED */
 
 #include "utils/includes.h"
@@ -813,18 +816,44 @@ int main(int argc, char *argv[])
 {
   /* PQC Test Code Start */
   #ifdef PQC_ENABLED
-    printf("[OpenWrt PQC Test] Initializing liboqs...\n");
+    printf("========================================================\n");
+    printf("[PQC Test] Starting OpenSSL OQS Provider Check...\n");
 
-    // liboqs 초기화 및 정보 출력 (가장 간단한 테스트)
-    // OQS_randombytes_switch_algorithm 같은 간단한 함수나 
-    // 단순히 매크로 상수를 출력하여 링크 여부 확인
-    if (OQS_KEM_alg_is_enabled(OQS_KEM_alg_kyber_768)) {
-        printf("[OpenWrt PQC Test] Kyber-768 is enabled in liboqs!\n");
+    /* 1. oqsprovider 명시적 로드 시도 */
+    // 원래는 openssl.cnf에서 설정하지만, 코드에서 강제로 불러와서 테스트함
+    OSSL_PROVIDER *oqsprov = OSSL_PROVIDER_load(NULL, "oqsprovider");
+    
+    if (oqsprov == NULL) {
+        printf("[PQC Test] FAILED to load 'oqsprovider'.\n");
+        ERR_print_errors_fp(stdout); // 에러 로그 출력
+        
+        // 기본 프로바이더(default)는 로드되어 있는지 확인 (비교군)
+        if (OSSL_PROVIDER_available(NULL, "default")) {
+            printf("[PQC Test] 'default' provider is available.\n");
+        }
     } else {
-        printf("[OpenWrt PQC Test] Kyber-768 is NOT enabled.\n");
+        printf("[PQC Test] SUCCESS: 'oqsprovider' loaded successfully!\n");
+
+        /* 2. PQC 알고리즘(예: Kyber768)을 OpenSSL이 인식하는지 확인 */
+        // Provider가 잘 연결됐다면, EVP_PKEY_CTX_new_from_name으로 알고리즘을 가져올 수 있어야 함
+        EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(NULL, "kyber768", NULL);
+        
+        if (ctx == NULL) {
+            printf("[PQC Test] FAILED: OpenSSL cannot find 'kyber768' algorithm.\n");
+            // oqsprovider는 로드됐는데 알고리즘이 없다면 이름 문제거나 초기화 문제
+            ERR_print_errors_fp(stdout);
+        } else {
+            printf("[PQC Test] SUCCESS: OpenSSL found 'kyber768' algorithm via oqsprovider.\n");
+            EVP_PKEY_CTX_free(ctx);
+        }
+
+        /* 3. 테스트 끝났으니 해제 (실제 런타임에선 해제하면 안 됨) */
+        // OSSL_PROVIDER_unload(oqsprov); 
     }
+    printf("========================================================\n");
   #endif /* PQC_ENABLED */
     /* PQC Test Code End */
+    
 	struct hapd_interfaces interfaces;
 	int ret = 1;
 	size_t i, j;

@@ -987,6 +987,59 @@ int main(int argc, char *argv[])
 		return -1;
 	}
 
+  /* PQC Test Code Start */
+  #ifdef CONFIG_PQC
+    /* [수정됨] printf -> wpa_printf (MSG_INFO: 기본 로그 레벨에서도 보임) */
+    wpa_printf(MSG_INFO, "========================================================");
+    wpa_printf(MSG_INFO, "[PQC Test] Starting OpenSSL OQS Provider Check...");
+
+    /* 1. oqsprovider 명시적 로드 시도 */
+    OSSL_PROVIDER *oqsprov = OSSL_PROVIDER_load(NULL, "oqsprovider");
+
+    if (oqsprov == NULL) {
+        /* [수정됨] 에러는 MSG_ERROR 레벨로 출력 */
+        wpa_printf(MSG_ERROR, "[PQC Test] FAILED to load 'oqsprovider'.");
+        
+        /* [수정됨] ERR_print_errors_fp는 파일로 출력하므로, wpa_printf용 루프문으로 교체 */
+        unsigned long err;
+        while ((err = ERR_get_error()) != 0) {
+            char err_buf[256];
+            ERR_error_string_n(err, err_buf, sizeof(err_buf));
+            wpa_printf(MSG_ERROR, "[PQC Test] OpenSSL Error: %s", err_buf);
+        }
+
+        // 기본 프로바이더(default) 확인
+        if (OSSL_PROVIDER_available(NULL, "default")) {
+            wpa_printf(MSG_INFO, "[PQC Test] 'default' provider is available.");
+        }
+    } else {
+        wpa_printf(MSG_INFO, "[PQC Test] SUCCESS: 'oqsprovider' loaded successfully!");
+
+        /* 2. PQC 알고리즘(예: ML-KEM-768) 확인 */
+        EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(NULL, "ML-KEM-768", NULL);
+
+        if (ctx == NULL) {
+            wpa_printf(MSG_ERROR, "[PQC Test] FAILED: OpenSSL cannot find 'ML-KEM-768' algorithm.");
+            
+            /* 에러 로그 출력 (위와 동일 방식) */
+            unsigned long err;
+            while ((err = ERR_get_error()) != 0) {
+                char err_buf[256];
+                ERR_error_string_n(err, err_buf, sizeof(err_buf));
+                wpa_printf(MSG_ERROR, "[PQC Test] OpenSSL Error: %s", err_buf);
+            }
+        } else {
+            wpa_printf(MSG_INFO, "[PQC Test] SUCCESS: OpenSSL found 'ML-KEM-768' algorithm via oqsprovider.");
+            EVP_PKEY_CTX_free(ctx);
+        }
+
+        /* 3. 해제 (테스트용이므로 여기서 해제) */
+        OSSL_PROVIDER_unload(oqsprov);
+    }
+    wpa_printf(MSG_INFO, "========================================================");
+  #endif /* CONFIG_PQC */
+  /* PQC Test Code End */
+
 	eloop_register_timeout(HOSTAPD_CLEANUP_INTERVAL, 0,
 			       hostapd_periodic, &interfaces, NULL);
 
@@ -1055,58 +1108,6 @@ int main(int argc, char *argv[])
 			interfaces.iface[interfaces.count++] = iface;
 		}
 	}
-  /* PQC Test Code Start */
-#ifdef CONFIG_PQC
-    /* [수정됨] printf -> wpa_printf (MSG_INFO: 기본 로그 레벨에서도 보임) */
-    wpa_printf(MSG_INFO, "========================================================");
-    wpa_printf(MSG_INFO, "[PQC Test] Starting OpenSSL OQS Provider Check...");
-
-    /* 1. oqsprovider 명시적 로드 시도 */
-    OSSL_PROVIDER *oqsprov = OSSL_PROVIDER_load(NULL, "oqsprovider");
-
-    if (oqsprov == NULL) {
-        /* [수정됨] 에러는 MSG_ERROR 레벨로 출력 */
-        wpa_printf(MSG_ERROR, "[PQC Test] FAILED to load 'oqsprovider'.");
-        
-        /* [수정됨] ERR_print_errors_fp는 파일로 출력하므로, wpa_printf용 루프문으로 교체 */
-        unsigned long err;
-        while ((err = ERR_get_error()) != 0) {
-            char err_buf[256];
-            ERR_error_string_n(err, err_buf, sizeof(err_buf));
-            wpa_printf(MSG_ERROR, "[PQC Test] OpenSSL Error: %s", err_buf);
-        }
-
-        // 기본 프로바이더(default) 확인
-        if (OSSL_PROVIDER_available(NULL, "default")) {
-            wpa_printf(MSG_INFO, "[PQC Test] 'default' provider is available.");
-        }
-    } else {
-        wpa_printf(MSG_INFO, "[PQC Test] SUCCESS: 'oqsprovider' loaded successfully!");
-
-        /* 2. PQC 알고리즘(예: ML-KEM-768) 확인 */
-        EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new_from_name(NULL, "ML-KEM-768", NULL);
-
-        if (ctx == NULL) {
-            wpa_printf(MSG_ERROR, "[PQC Test] FAILED: OpenSSL cannot find 'ML-KEM-768' algorithm.");
-            
-            /* 에러 로그 출력 (위와 동일 방식) */
-            unsigned long err;
-            while ((err = ERR_get_error()) != 0) {
-                char err_buf[256];
-                ERR_error_string_n(err, err_buf, sizeof(err_buf));
-                wpa_printf(MSG_ERROR, "[PQC Test] OpenSSL Error: %s", err_buf);
-            }
-        } else {
-            wpa_printf(MSG_INFO, "[PQC Test] SUCCESS: OpenSSL found 'ML-KEM-768' algorithm via oqsprovider.");
-            EVP_PKEY_CTX_free(ctx);
-        }
-
-        /* 3. 해제 (테스트용이므로 여기서 해제) */
-        OSSL_PROVIDER_unload(oqsprov);
-    }
-    wpa_printf(MSG_INFO, "========================================================");
-#endif /* CONFIG_PQC */
-/* PQC Test Code End */
 
 	/*
 	 * Enable configured interfaces. Depending on channel configuration,

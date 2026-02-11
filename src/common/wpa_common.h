@@ -748,6 +748,14 @@ struct wpa_eapol_ie_parse {
 	size_t mlo_link_len[MAX_NUM_MLD_LINKS];
 	const u8 *rsn_override_link[MAX_NUM_MLD_LINKS];
 	size_t rsn_override_link_len[MAX_NUM_MLD_LINKS];
+
+#ifdef CONFIG_PQC
+    /* [Standard Extension Draft] Kyber Key Exchange Data in EAPOL-Key KDE */
+    const u8 *kyber_pubkey;
+    size_t kyber_pubkey_len;
+    const u8 *kyber_ciphertext;
+    size_t kyber_ciphertext_len;
+#endif /* CONFIG_PQC */
 };
 
 int wpa_parse_kde_ies(const u8 *buf, size_t len, struct wpa_eapol_ie_parse *ie);

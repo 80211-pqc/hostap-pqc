@@ -2937,9 +2937,8 @@ u32 wpa_akm_to_suite(int akm)
   if (akm & WPA_KEY_MGMT_SAE_PQC_512)
     return RSN_AUTH_KEY_MGMT_SAE_PQC_512;
   if (akm & WPA_KEY_MGMT_SAE_PQC_768)
-  #endif /* CONFIG_PQC */
-
     return RSN_AUTH_KEY_MGMT_SAE_PQC_768;
+  #endif /* CONFIG_PQC */
 	if (akm & WPA_KEY_MGMT_OWE)
 		return RSN_AUTH_KEY_MGMT_OWE;
 	if (akm & WPA_KEY_MGMT_DPP)
@@ -3759,7 +3758,36 @@ static int wpa_parse_generic(const u8 *pos, struct wpa_eapol_ie_parse *ie)
 			    ie->rsn_selection, ie->rsn_selection_len);
 		return 0;
 	}
+  
+  /* [Standard Extension Draft]
+	 * SAE with Post-Quantum Cryptography (Kyber)
+	 * KDE Parsing Logic for PQC Key Material (Public Key / Ciphertext)
+	 *
+	 * Selector: RSN_KEY_DATA_PQC_512_KEY (Type 31) or RSN_KEY_DATA_PQC_768_KEY (Type 32)
+	 * Structure: [Subtype(1)] [Control(1)] [Data(N)...]
+	 * Subtype 1: Kyber Public Key
+	 * Subtype 2: Kyber Ciphertext
+	 */
+  #ifdef CONFIG_PQC
+	if (left >= 2 && (selector == RSN_KEY_DATA_PQC_512_KEY ||
+			              selector == RSN_KEY_DATA_PQC_768_KEY)) {
+		u8 subtype = p[0];
 
+		if (subtype == 1) {
+			ie->kyber_pubkey = p + 2;
+			ie->kyber_pubkey_len = left - 2;
+			wpa_hexdump_key(MSG_DEBUG, "PQC: Kyber Public Key extracted", 
+					ie->kyber_pubkey, ie->kyber_pubkey_len);
+		} else if (subtype == 2) {
+			ie->kyber_ciphertext = p + 2;
+			ie->kyber_ciphertext_len = left - 2;
+			wpa_hexdump_key(MSG_DEBUG, "PQC: Kyber Ciphertext extracted", 
+					ie->kyber_ciphertext, ie->kyber_ciphertext_len);
+		}
+
+		return 0;
+	}
+#endif /* CONFIG_PQC */
 	return 2;
 }
 

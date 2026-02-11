@@ -205,6 +205,13 @@ static int wpa_gen_wpa_ie_rsn(u8 *rsn_ie, size_t rsn_ie_len,
 		RSN_SELECTOR_PUT(pos, RSN_AUTH_KEY_MGMT_FT_SAE);
 	} else if (key_mgmt == WPA_KEY_MGMT_FT_SAE_EXT_KEY) {
 		RSN_SELECTOR_PUT(pos, RSN_AUTH_KEY_MGMT_FT_SAE_EXT_KEY);
+/* [Standard Extension Draft] STA selects PQC AKM */
+#ifdef CONFIG_PQC
+	} else if (key_mgmt == WPA_KEY_MGMT_SAE_PQC_512) {
+		RSN_SELECTOR_PUT(pos, RSN_AUTH_KEY_MGMT_SAE_PQC_512);
+	} else if (key_mgmt == WPA_KEY_MGMT_SAE_PQC_768) {
+		RSN_SELECTOR_PUT(pos, RSN_AUTH_KEY_MGMT_SAE_PQC_768);
+#endif /* CONFIG_PQC */
 #endif /* CONFIG_SAE */
 	} else if (key_mgmt == WPA_KEY_MGMT_IEEE8021X_SUITE_B_192) {
 		RSN_SELECTOR_PUT(pos, RSN_AUTH_KEY_MGMT_802_1X_SUITE_B_192);

@@ -35,6 +35,12 @@
 #include "wpa_auth_i.h"
 #include "wpa_auth_ie.h"
 
+/* [Standard Extension Draft] Liboqs Header */
+#ifdef CONFIG_PQC
+#include <oqs/oqs.h>
+#endif /* CONFIG_PQC */
+
+
 #define STATE_MACHINE_DATA struct wpa_state_machine
 #define STATE_MACHINE_DEBUG_PREFIX "WPA"
 #define STATE_MACHINE_ADDR wpa_auth_get_spa(sm)
@@ -2290,10 +2296,143 @@ static void wpa_send_eapol(struct wpa_authenticator *wpa_auth,
 	int pairwise = key_info & WPA_KEY_INFO_KEY_TYPE;
 	u32 ctr;
 
+/* [Standard Extension Draft] 
+ * Variables for PQC (Kyber) Key Injection 
+ */
+#ifdef CONFIG_PQC
+/* Chunk Size Optimization: 255(Max) - 6(Header) - 4(Safety) = 245 */
+#define PQC_KDE_MAX_FRAGMENT 245 
+/* Header Overhead: Max 6 fragments * 8 bytes = 48 -> Round to 64 */
+#define PQC_KDE_HEADER_OVERHEAD 64
+
+	u8 *kyber_kde = NULL;       /* 확장된 KDE 버퍼 */
+	size_t kyber_kde_len = 0;
+	u8 *pqc_pubkey = NULL;      /* Kyber 공개키 */
+	u8 *pqc_privkey = NULL;     /* Kyber 비밀키 */
+	size_t pubkey_len = 0;
+	size_t privkey_len = 0;
+
+#endif /* CONFIG_PQC */
+
+
 	if (!sm)
 		return;
 
 	ctr = pairwise ? sm->TimeoutCtr : sm->GTimeoutCtr;
+
+#ifdef CONFIG_PQC
+/* [Standard Extension Draft] Kyber Key Injection Logic 
+ * Condition: Msg 1 (Pairwise && ACK && !MIC && First Attempt)
+ */
+if (pairwise && (key_info & WPA_KEY_INFO_ACK) && 
+	    !(key_info & WPA_KEY_INFO_MIC) && (ctr == 0)) {
+
+		if (sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) {
+			
+			wpa_printf(MSG_DEBUG, "PQC: Generating Kyber Keypair for Msg 1...");
+
+			/* 1. Algorithm Selection & Type Definition */
+			const char *kem_alg_name = NULL;
+			u8 type_suite = 0; /* Data Type: 0x20(31) or 0x21(32) */
+
+			if (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) {
+				kem_alg_name = OQS_KEM_alg_kyber_768;
+				type_suite = RSN_KEY_DATA_PQC_768_KEY; /* 0x21 */
+			} else {
+				kem_alg_name = OQS_KEM_alg_kyber_512;
+				type_suite = RSN_KEY_DATA_PQC_512_KEY; /* 0x20 */
+			}
+
+			/* 2. Init & Alloc */
+			OQS_KEM *kem = OQS_KEM_new(kem_alg_name);
+			if (!kem) {
+				wpa_printf(MSG_ERROR, "PQC: OQS init failed");
+				goto pqc_error;
+			}
+
+			pubkey_len = kem->length_public_key;
+			privkey_len = kem->length_secret_key;
+			pqc_pubkey = os_zalloc(pubkey_len);
+			pqc_privkey = os_zalloc(privkey_len);
+
+			if (!pqc_pubkey || !pqc_privkey) {
+				wpa_printf(MSG_ERROR, "PQC: Memory alloc failed");
+				OQS_KEM_free(kem);
+				goto pqc_error;
+			}
+
+			/* 3. Generate Keypair */
+			if (OQS_KEM_keypair(kem, pqc_pubkey, pqc_privkey) != OQS_SUCCESS) {
+				wpa_printf(MSG_ERROR, "PQC: Keygen failed");
+				OQS_KEM_free(kem);
+				goto pqc_error;
+			}
+			OQS_KEM_free(kem);
+
+			/* 4. Create Expanded KDE with Optimized Size */
+			kyber_kde = os_zalloc(kde_len + pubkey_len + PQC_KDE_HEADER_OVERHEAD);
+			if (kyber_kde) {
+				u8 *pos = kyber_kde;
+
+				if (kde && kde_len > 0) {
+					os_memcpy(pos, kde, kde_len);
+					pos += kde_len;
+				}
+
+				/* Fragment Kyber PubKey with Control Bitmask */
+				size_t left = pubkey_len;
+				u8 *kpos = pqc_pubkey;
+				u8 frag_seq = 0; /* Sequence Number (0~7) */
+
+				while (left > 0) {
+					size_t chunk = (left > PQC_KDE_MAX_FRAGMENT) ? 
+					               PQC_KDE_MAX_FRAGMENT : left;
+					
+					/* Control Byte Construction 
+					 * Bit 0: More Fragments (1=Yes, 0=Last)
+					 * Bit 1-3: Sequence Number
+					 * Bit 4-7: Reserved (0)
+					 */
+					u8 control = (frag_seq & 0x07) << 1; 
+					if (left > chunk) {
+						control |= 0x01; /* More Fragments */
+					}
+					
+					*pos++ = WLAN_EID_VENDOR_SPECIFIC; 
+					*pos++ = 6 + chunk; /* Len: OUI(3)+Type(1)+Sub(1)+Ctrl(1)+Data */
+					*pos++ = 0x00; *pos++ = 0x0f; *pos++ = 0xac; /* OUI */
+					*pos++ = type_suite; /* Data Type (0x20 or 0x21) */
+					*pos++ = 1;          /* Subtype 1 (Pub) */
+					*pos++ = control;    /* Control Field (Bitmask) */
+					
+					os_memcpy(pos, kpos, chunk);
+					pos += chunk; 
+					kpos += chunk; 
+					left -= chunk;
+					frag_seq++;
+				}
+				
+				kyber_kde_len = pos - kyber_kde;
+				wpa_printf(MSG_DEBUG, 
+				           "PQC: Kyber PubKey attached (%zu bytes, %u fragments)", 
+				           kyber_kde_len, frag_seq);
+			}
+
+			/* 5. Store Private Key in SM */
+			if (sm->kyber_privkey) os_free(sm->kyber_privkey);
+			sm->kyber_privkey = pqc_privkey;
+			sm->kyber_privkey_len = privkey_len;
+			pqc_privkey = NULL; 
+			
+			os_free(pqc_pubkey);
+			pqc_pubkey = NULL;
+		}
+	}
+
+pqc_error:
+	if (pqc_pubkey) os_free(pqc_pubkey);
+	if (pqc_privkey) os_free(pqc_privkey);
+#endif /* CONFIG_PQC */
 
 #ifdef CONFIG_TESTING_OPTIONS
 	/* When delay_eapol_tx is true, delay the EAPOL-Key transmission by
@@ -2306,8 +2445,27 @@ static void wpa_send_eapol(struct wpa_authenticator *wpa_auth,
 		goto skip_tx;
 	}
 #endif /* CONFIG_TESTING_OPTIONS */
-	__wpa_send_eapol(wpa_auth, sm, key_info, key_rsc, nonce, kde, kde_len,
+
+
+
+	/* [Standard Extension Draft] 
+	 * Call worker with modified KDE (kyber_kde) if available 
+	 */
+	__wpa_send_eapol(wpa_auth, sm, key_info, key_rsc, nonce,
+#ifdef CONFIG_PQC
+			 (kyber_kde ? kyber_kde : kde), 
+			 (kyber_kde ? kyber_kde_len : kde_len),
+#else
+			 kde, kde_len,
+#endif /* CONFIG_PQC */
 			 keyidx, encr, 0);
+
+#ifdef CONFIG_PQC
+	/* Clean up temporary buffer */
+	if (kyber_kde) os_free(kyber_kde);
+#endif /* CONFIG_PQC */
+
+
 #ifdef CONFIG_TESTING_OPTIONS
 skip_tx:
 #endif /* CONFIG_TESTING_OPTIONS */

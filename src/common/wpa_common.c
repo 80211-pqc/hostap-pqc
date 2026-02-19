@@ -3758,35 +3758,90 @@ static int wpa_parse_generic(const u8 *pos, struct wpa_eapol_ie_parse *ie)
 			    ie->rsn_selection, ie->rsn_selection_len);
 		return 0;
 	}
-  
-  /* [Standard Extension Draft]
-	 * SAE with Post-Quantum Cryptography (Kyber)
-	 * KDE Parsing Logic for PQC Key Material (Public Key / Ciphertext)
-	 *
-	 * Selector: RSN_KEY_DATA_PQC_512_KEY (Type 31) or RSN_KEY_DATA_PQC_768_KEY (Type 32)
-	 * Structure: [Subtype(1)] [Control(1)] [Data(N)...]
-	 * Subtype 1: Kyber Public Key
-	 * Subtype 2: Kyber Ciphertext
-	 */
-  #ifdef CONFIG_PQC
-	if (left >= 2 && (selector == RSN_KEY_DATA_PQC_512_KEY ||
-			              selector == RSN_KEY_DATA_PQC_768_KEY)) {
-		u8 subtype = p[0];
-
-		if (subtype == 1) {
-			ie->kyber_pubkey = p + 2;
-			ie->kyber_pubkey_len = left - 2;
-			wpa_hexdump_key(MSG_DEBUG, "PQC: Kyber Public Key extracted", 
-					ie->kyber_pubkey, ie->kyber_pubkey_len);
-		} else if (subtype == 2) {
-			ie->kyber_ciphertext = p + 2;
-			ie->kyber_ciphertext_len = left - 2;
-			wpa_hexdump_key(MSG_DEBUG, "PQC: Kyber Ciphertext extracted", 
-					ie->kyber_ciphertext, ie->kyber_ciphertext_len);
-		}
-
-		return 0;
-	}
+/* [Standard Extension Draft] Kyber KDE Parsing & Reassembly */
+#ifdef CONFIG_PQC
+if (left >= 2 && (selector == RSN_KEY_DATA_PQC_512_KEY ||
+                  selector == RSN_KEY_DATA_PQC_768_KEY)) {
+    u8 subtype = p[0];
+    u8 control = p[1];
+    u8 seq = PQC_GET_SEQ(control);
+    const u8 *data = p + 2;
+    size_t data_len = left - 2;
+    
+    /* Skip empty fragments */
+    if (data_len == 0) {
+        wpa_printf(MSG_DEBUG, "PQC: Empty fragment, ignoring");
+        return 0;
+    }
+    
+    if (subtype == PQC_KDE_SUBTYPE_PUBKEY) {
+        /* First fragment: initialize buffer */
+        if (seq == 0) {
+            if (ie->kyber_pubkey) 
+                os_free(ie->kyber_pubkey);
+            ie->kyber_pubkey = os_zalloc(PQC_PUBKEY_MAX_SIZE);
+            if (!ie->kyber_pubkey) {
+                wpa_printf(MSG_ERROR, "PQC: Memory allocation failed");
+                ie->kyber_pubkey_len = 0;
+                ie->kyber_pk_next_seq = 0xFF; /* Poison */
+                return 2;
+            }
+            ie->kyber_pubkey_len = 0;
+            ie->kyber_pk_next_seq = 0;
+        }
+        
+        /* Append only if sequence matches and buffer is safe */
+        if (ie->kyber_pubkey && seq == ie->kyber_pk_next_seq &&
+            ie->kyber_pubkey_len + data_len <= PQC_PUBKEY_MAX_SIZE) {
+            os_memcpy(ie->kyber_pubkey + ie->kyber_pubkey_len, 
+                      data, data_len);
+            ie->kyber_pubkey_len += data_len;
+            ie->kyber_pk_next_seq++;
+        } else if (!ie->kyber_pubkey) {
+            wpa_printf(MSG_DEBUG, "PQC: PubKey buffer not initialized");
+        } else if (seq != ie->kyber_pk_next_seq) {
+            wpa_printf(MSG_DEBUG,
+                       "PQC: Out-of-order PubKey (exp=%u, got=%u)",
+                       ie->kyber_pk_next_seq, seq);
+        } else {
+            wpa_printf(MSG_WARNING, "PQC: PubKey overflow prevented");
+        }
+        
+    } else if (subtype == PQC_KDE_SUBTYPE_CIPHERTEXT) {
+        /* Ciphertext - same pattern */
+        if (seq == 0) {
+            if (ie->kyber_ciphertext)
+                os_free(ie->kyber_ciphertext);
+            ie->kyber_ciphertext = os_zalloc(PQC_CIPHERTEXT_MAX_SIZE);
+            if (!ie->kyber_ciphertext) {
+                wpa_printf(MSG_ERROR, "PQC: Memory allocation failed");
+                ie->kyber_ciphertext_len = 0;
+                ie->kyber_ct_next_seq = 0xFF;
+                return 2;
+            }
+            ie->kyber_ciphertext_len = 0;
+            ie->kyber_ct_next_seq = 0;
+        }
+        
+        if (ie->kyber_ciphertext && seq == ie->kyber_ct_next_seq &&
+            ie->kyber_ciphertext_len + data_len <= PQC_CIPHERTEXT_MAX_SIZE) {
+            os_memcpy(ie->kyber_ciphertext + ie->kyber_ciphertext_len,
+                      data, data_len);
+            ie->kyber_ciphertext_len += data_len;
+            ie->kyber_ct_next_seq++;
+        } else if (!ie->kyber_ciphertext) {
+            wpa_printf(MSG_DEBUG, "PQC: CT buffer not initialized");
+        } else if (seq != ie->kyber_ct_next_seq) {
+            wpa_printf(MSG_DEBUG,
+                       "PQC: Out-of-order CT (exp=%u, got=%u)",
+                       ie->kyber_ct_next_seq, seq);
+        } else {
+            wpa_printf(MSG_WARNING, "PQC: CT overflow prevented");
+        }
+    }
+    
+    return 0;
+}
 #endif /* CONFIG_PQC */
 	return 2;
 }

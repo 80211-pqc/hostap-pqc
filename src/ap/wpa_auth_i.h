@@ -191,6 +191,12 @@ struct wpa_state_machine {
 	} mld_links[MAX_NUM_MLD_LINKS];
 #endif /* CONFIG_IEEE80211BE */
 
+/* [Standard Extension Draft] PQC Private Key Storage */
+#ifdef CONFIG_PQC
+    u8 *kyber_privkey;
+    size_t kyber_privkey_len;
+#endif /* CONFIG_PQC */
+
 	bool ssid_protection;
 };
 

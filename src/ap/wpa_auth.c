@@ -2333,14 +2333,14 @@ if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
 
 			/* 1. Algorithm Selection & Type Definition */
 			const char *kem_alg_name = NULL;
-			u8 type_suite = 0; /* Data Type: 0x20(31) or 0x21(32) */
+			u8 type_suite = 0; /* Data Type: 0x1F(31) or 0x20(32) */
 
 			if (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) {
 				kem_alg_name = OQS_KEM_alg_kyber_768;
-				type_suite = RSN_KEY_DATA_PQC_768_KEY; /* 0x21 */
+				type_suite = RSN_KEY_DATA_PQC_768_KEY; /* 0x20(32) */
 			} else {
 				kem_alg_name = OQS_KEM_alg_kyber_512;
-				type_suite = RSN_KEY_DATA_PQC_512_KEY; /* 0x20 */
+				type_suite = RSN_KEY_DATA_PQC_512_KEY; /* 0x1F(31) */
 			}
 
 			/* 2. Init & Alloc */
@@ -2389,10 +2389,10 @@ if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
 					               PQC_KDE_MAX_FRAGMENT : left;
 					
 					/* Control Byte Construction 
-					 * Bit 0: More Fragments (1=Yes, 0=Last)
-					 * Bit 1-3: Sequence Number
-					 * Bit 4-7: Reserved (0)
-					 */
+					 * Bit 0:   More Fragments (1=continues, 0=last)
+           * Bit 1-3: Sequence (0-7)
+           * Bit 4-7: Reserved (must be 0)
+           */
 					u8 control = (frag_seq & 0x07) << 1; 
 					if (left > chunk) {
 						control |= 0x01; /* More Fragments */

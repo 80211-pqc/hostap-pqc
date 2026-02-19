@@ -260,6 +260,29 @@ struct wpa_eapol_key {
 #define WPA_PASN_MIC_MAX_LEN 24
 #define WPA_LTF_KEYSEED_MAX_LEN 48
 
+/* [Standard Extension Draft] Kyber KDE Constants */
+#ifdef CONFIG_PQC
+/* [Standard Extension Draft] Kyber KDE Constants */
+
+/* Subtypes */
+#define PQC_KDE_SUBTYPE_PUBKEY      0x01
+#define PQC_KDE_SUBTYPE_CIPHERTEXT  0x02
+
+/* Control Field Bitmasks */
+#define PQC_CTRL_MORE_FRAGMENTS     0x01  /* Bit 0: 1=More, 0=Last */
+#define PQC_CTRL_SEQ_MASK           0x0E  /* Bit 1-3: Sequence Number */
+#define PQC_CTRL_SEQ_SHIFT          1
+
+/* Macros for extracting values */
+#define PQC_GET_SEQ(ctrl)   (((ctrl) & PQC_CTRL_SEQ_MASK) >> PQC_CTRL_SEQ_SHIFT)
+#define PQC_HAS_MORE(ctrl)  ((ctrl) & PQC_CTRL_MORE_FRAGMENTS)
+
+/* Max Buffer Sizes (Safety Margins) */
+#define PQC_PUBKEY_MAX_SIZE      1200
+#define PQC_CIPHERTEXT_MAX_SIZE  1200 
+#endif /* CONFIG_PQC */
+
+
 /**
  * struct wpa_ptk - WPA Pairwise Transient Key
  * IEEE Std 802.11i-2004 - 8.5.1.2 Pairwise key hierarchy
@@ -748,14 +771,16 @@ struct wpa_eapol_ie_parse {
 	size_t mlo_link_len[MAX_NUM_MLD_LINKS];
 	const u8 *rsn_override_link[MAX_NUM_MLD_LINKS];
 	size_t rsn_override_link_len[MAX_NUM_MLD_LINKS];
-
+/* [Standard Extension] PQC Reassembly Buffers */
 #ifdef CONFIG_PQC
-    /* [Standard Extension Draft] Kyber Key Exchange Data in EAPOL-Key KDE */
-    const u8 *kyber_pubkey;
+    u8 *kyber_pubkey;
     size_t kyber_pubkey_len;
-    const u8 *kyber_ciphertext;
+    u8 kyber_pk_next_seq; /* 순서 방어용 필수 변수 */
+    
+    u8 *kyber_ciphertext;
     size_t kyber_ciphertext_len;
-#endif /* CONFIG_PQC */
+    u8 kyber_ct_next_seq; /* 순서 방어용 필수 변수 */
+#endif
 };
 
 int wpa_parse_kde_ies(const u8 *buf, size_t len, struct wpa_eapol_ie_parse *ie);

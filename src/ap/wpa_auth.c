@@ -1147,6 +1147,20 @@ static void wpa_free_sta_sm(struct wpa_state_machine *sm)
 #ifdef CONFIG_DPP2
 	wpabuf_clear_free(sm->dpp_z);
 #endif /* CONFIG_DPP2 */
+
+	/* [Standard Extension Draft] Clean up PQC private key
+	 * Private Key: Securely erase decapsulation key from memory
+	 * Note: Ciphertext is transient (parsed in ie struct, not stored in sm)
+	 */
+#ifdef CONFIG_PQC
+
+	if (sm->kyber_privkey) {
+		bin_clear_free(sm->kyber_privkey, sm->kyber_privkey_len);
+		sm->kyber_privkey = NULL;
+	}
+#endif /* CONFIG_PQC */
+
+
 	bin_clear_free(sm, sizeof(*sm));
 }
 
@@ -2419,7 +2433,7 @@ if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
 			}
 
 			/* 5. Store Private Key in SM */
-			if (sm->kyber_privkey) os_free(sm->kyber_privkey);
+			if (sm->kyber_privkey) bin_clear_free(sm->kyber_privkey, sm->kyber_privkey_len);
 			sm->kyber_privkey = pqc_privkey;
 			sm->kyber_privkey_len = privkey_len;
 			pqc_privkey = NULL; 
@@ -2431,7 +2445,7 @@ if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
 
 pqc_error:
 	if (pqc_pubkey) os_free(pqc_pubkey);
-	if (pqc_privkey) os_free(pqc_privkey);
+	if (pqc_privkey) bin_clear_free(pqc_privkey, privkey_len);
 #endif /* CONFIG_PQC */
 
 #ifdef CONFIG_TESTING_OPTIONS

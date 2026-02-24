@@ -231,6 +231,16 @@ struct wpa_sm {
 	struct wpabuf *dpp_z;
 	int dpp_pfs;
 #endif /* CONFIG_DPP2 */
+
+
+/* [Standard Extension Draft] */
+#ifdef CONFIG_PQC
+	u8 *kyber_ciphertext;
+	size_t kyber_ciphertext_len;
+	u8 *kyber_shared_secret;
+	size_t kyber_shared_secret_len;
+#endif /* CONFIG_PQC */
+
 	struct wpa_sm_mlo mlo;
 
 	bool wmm_enabled;

@@ -262,7 +262,6 @@ struct wpa_eapol_key {
 
 /* [Standard Extension Draft] Kyber KDE Constants */
 #ifdef CONFIG_PQC
-/* [Standard Extension Draft] Kyber KDE Constants */
 
 /* Subtypes */
 #define PQC_KDE_SUBTYPE_PUBKEY      0x01

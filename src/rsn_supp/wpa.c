@@ -998,6 +998,96 @@ static void wpa_supplicant_process_1_of_4(struct wpa_sm *sm,
 		wpa_hexdump(MSG_DEBUG, "RSN: PMKID from Authenticator",
 			    ie.pmkid, PMKID_LEN);
 	}
+  /* [Standard Extension Draft] Kyber Encapsulation */
+#ifdef CONFIG_PQC
+	/* [Standard Extension Draft] Kyber Encapsulation */
+	size_t expected_pubkey_len = (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ? 
+	                             1184 : 800;
+	
+	if ((sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) && 
+	    ie.kyber_pubkey && ie.kyber_pubkey_len == expected_pubkey_len) {
+		
+		wpa_printf(MSG_DEBUG, "PQC: Starting Kyber Encapsulation (len=%zu)...",
+		           ie.kyber_pubkey_len);
+		
+		/* 기존 데이터 해제 */
+		if (sm->kyber_ciphertext) {
+			os_free(sm->kyber_ciphertext);
+			sm->kyber_ciphertext = NULL;
+			sm->kyber_ciphertext_len = 0;
+		}
+		if (sm->kyber_shared_secret) {
+			bin_clear_free(sm->kyber_shared_secret, sm->kyber_shared_secret_len);
+			sm->kyber_shared_secret = NULL;
+			sm->kyber_shared_secret_len = 0;
+		}
+		
+		const char *kem_alg_name = (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ? 
+		                           OQS_KEM_alg_kyber_768 : OQS_KEM_alg_kyber_512;
+		
+		OQS_KEM *kem = OQS_KEM_new(kem_alg_name);
+		if (!kem) {
+			wpa_printf(MSG_ERROR, "PQC: OQS_KEM_new failed");
+			goto pqc_cleanup;
+		}
+		
+		/* 공개키 길이 재검증 (critical!) */
+		if (ie.kyber_pubkey_len != kem->length_public_key) {
+			wpa_printf(MSG_ERROR, 
+			           "PQC: Pubkey length mismatch (expected=%zu, got=%zu)",
+			           kem->length_public_key, ie.kyber_pubkey_len);
+			OQS_KEM_free(kem);
+			goto pqc_cleanup;
+		}
+		
+		/* 메모리 할당 */
+		sm->kyber_ciphertext = os_zalloc(kem->length_ciphertext);
+		sm->kyber_shared_secret = os_zalloc(kem->length_shared_secret);
+		
+		if (!sm->kyber_ciphertext || !sm->kyber_shared_secret) {
+			wpa_printf(MSG_ERROR, "PQC: Memory allocation failed");
+			if (sm->kyber_ciphertext) {
+				os_free(sm->kyber_ciphertext);
+				sm->kyber_ciphertext = NULL;
+			}
+			if (sm->kyber_shared_secret) {
+				os_free(sm->kyber_shared_secret);
+				sm->kyber_shared_secret = NULL;
+			}
+			OQS_KEM_free(kem);
+			goto pqc_cleanup;
+		}
+		
+		/* Encapsulation */
+		if (OQS_KEM_encaps(kem, sm->kyber_ciphertext, sm->kyber_shared_secret, 
+		                   ie.kyber_pubkey) != OQS_SUCCESS) {
+			wpa_printf(MSG_ERROR, "PQC: OQS_KEM_encaps failed");
+			bin_clear_free(sm->kyber_shared_secret, kem->length_shared_secret);
+			os_free(sm->kyber_ciphertext);
+			sm->kyber_shared_secret = NULL;
+			sm->kyber_shared_secret_len = 0;
+			sm->kyber_ciphertext = NULL;
+			sm->kyber_ciphertext_len = 0;
+			OQS_KEM_free(kem);
+			goto pqc_cleanup;
+		}
+		
+		sm->kyber_ciphertext_len = kem->length_ciphertext;
+		sm->kyber_shared_secret_len = kem->length_shared_secret;
+		OQS_KEM_free(kem);
+		
+		wpa_printf(MSG_DEBUG, 
+		           "PQC: Encapsulation successful (CT=%zu, SS=%zu bytes)", 
+		           sm->kyber_ciphertext_len, sm->kyber_shared_secret_len);
+	}
+	
+pqc_cleanup:
+
+	if (ie.kyber_pubkey) {
+		os_free(ie.kyber_pubkey);
+		ie.kyber_pubkey = NULL;
+	}
+#endif /* CONFIG_PQC */
 
 	if (sm->mlo.valid_links && !is_valid_ap_mld_mac_kde(sm, ie.mac_addr)) {
 		wpa_printf(MSG_INFO,

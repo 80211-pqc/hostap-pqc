@@ -2314,10 +2314,7 @@ static void wpa_send_eapol(struct wpa_authenticator *wpa_auth,
  * Variables for PQC (Kyber) Key Injection 
  */
 #ifdef CONFIG_PQC
-/* Chunk Size Optimization: 255(Max) - 6(Header) - 4(Safety) = 245 */
-#define PQC_KDE_MAX_FRAGMENT 245 
-/* Header Overhead: Max 6 fragments * 8 bytes = 48 -> Round to 64 */
-#define PQC_KDE_HEADER_OVERHEAD 64
+
 
 	u8 *kyber_kde = NULL;       /* 확장된 KDE 버퍼 */
 	size_t kyber_kde_len = 0;

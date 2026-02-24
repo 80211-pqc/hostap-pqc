@@ -1000,7 +1000,6 @@ static void wpa_supplicant_process_1_of_4(struct wpa_sm *sm,
 	}
   /* [Standard Extension Draft] Kyber Encapsulation */
 #ifdef CONFIG_PQC
-	/* [Standard Extension Draft] Kyber Encapsulation */
 	size_t expected_pubkey_len = (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ? 
 	                             1184 : 800;
 	
@@ -1133,13 +1132,24 @@ pqc_cleanup:
 		mlo_kde_len = wpa_mlo_link_kde_len(sm) +
 			RSN_SELECTOR_LEN + ETH_ALEN + 2;
 
+/* [Standard Extension Draft] Assign Kyber ciphertext */
+#ifdef CONFIG_PQC
+	size_t pqc_kde_extra = 0;
+	if (sm->kyber_ciphertext && sm->kyber_ciphertext_len > 0) {
+		pqc_kde_extra = sm->kyber_ciphertext_len + PQC_KDE_HEADER_OVERHEAD;
+	}
+#endif /* CONFIG_PQC */
 	kde = sm->assoc_wpa_ie;
 	kde_len = sm->assoc_wpa_ie_len;
 	kde_buf = os_malloc(kde_len +
 			    2 + RSN_SELECTOR_LEN + 3 +
 			    sm->assoc_rsnxe_len +
 			    2 + RSN_SELECTOR_LEN + 1 +
-			    2 + RSN_SELECTOR_LEN + 2 + mlo_kde_len);
+			    2 + RSN_SELECTOR_LEN + 2 + mlo_kde_len
+#ifdef CONFIG_PQC
+			    + pqc_kde_extra
+#endif /* CONFIG_PQC */
+        );
 
 	if (!kde_buf)
 		goto failed;
@@ -1228,6 +1238,43 @@ pqc_cleanup:
 		pos = wpa_mlo_link_kde(sm, pos);
 		kde_len = pos - kde;
 	}
+/* [Standard Extension Draft] 2. Kyber Ciphertext Fragmenting */
+#ifdef CONFIG_PQC
+	if (sm->kyber_ciphertext && sm->kyber_ciphertext_len > 0) {
+		u8 *pos = kde + kde_len;
+		size_t left = sm->kyber_ciphertext_len;
+		u8 *ct_pos = sm->kyber_ciphertext;
+		u8 frag_seq = 0;
+		u8 type_suite = (sm->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ? 
+		                 RSN_KEY_DATA_PQC_768_KEY : RSN_KEY_DATA_PQC_512_KEY;
+
+		wpa_printf(MSG_DEBUG, "PQC: Fragmenting Ciphertext for Msg 2...");
+
+		while (left > 0) {
+			size_t chunk = (left > PQC_KDE_MAX_FRAGMENT) ? PQC_KDE_MAX_FRAGMENT : left;
+			
+			/* Control Bitmask */
+			u8 control = (frag_seq & 0x07) << 1;
+			if (left > chunk) control |= 0x01; /* More Fragments bit */
+
+			*pos++ = WLAN_EID_VENDOR_SPECIFIC;
+			*pos++ = 6 + chunk;
+			*pos++ = 0x00; *pos++ = 0x0f; *pos++ = 0xac;
+			*pos++ = type_suite;
+			*pos++ = PQC_KDE_SUBTYPE_CIPHERTEXT; /* Subtype 2 (Ciphertext) */
+			*pos++ = control;
+
+			os_memcpy(pos, ct_pos, chunk);
+			pos += chunk;
+			ct_pos += chunk;
+			left -= chunk;
+			frag_seq++;
+		}
+		
+		kde_len = pos - kde; /* update kde_len */
+		wpa_printf(MSG_DEBUG, "PQC: Ciphertext fragmented into %u chunks", frag_seq);
+	}
+#endif /* CONFIG_PQC */
 
 	if (wpa_supplicant_send_2_of_4(sm, wpa_sm_get_auth_addr(sm), key, ver,
 				       sm->snonce, kde, kde_len, ptk) < 0)

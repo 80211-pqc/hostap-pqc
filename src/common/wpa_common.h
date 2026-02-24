@@ -279,6 +279,13 @@ struct wpa_eapol_key {
 /* Max Buffer Sizes (Safety Margins) */
 #define PQC_PUBKEY_MAX_SIZE      1200
 #define PQC_CIPHERTEXT_MAX_SIZE  1200 
+
+
+/* Fragmentation Constants */
+/* Chunk Size Optimization: 255(Max) - 6(Header) - 4(Safety) = 245 */
+#define PQC_KDE_MAX_FRAGMENT 245 
+/* Header Overhead: Max 6 fragments * 8 bytes = 48 -> Round to 64 */
+#define PQC_KDE_HEADER_OVERHEAD 64
 #endif /* CONFIG_PQC */
 
 

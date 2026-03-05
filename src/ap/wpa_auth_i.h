@@ -195,6 +195,8 @@ struct wpa_state_machine {
 #ifdef CONFIG_PQC
     u8 *kyber_privkey;
     size_t kyber_privkey_len;
+    u8 *kyber_shared_secret;
+    size_t kyber_shared_secret_len;
 #endif /* CONFIG_PQC */
 
 	bool ssid_protection;

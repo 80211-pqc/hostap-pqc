@@ -1157,6 +1157,10 @@ static void wpa_free_sta_sm(struct wpa_state_machine *sm)
 	if (sm->kyber_privkey) {
 		bin_clear_free(sm->kyber_privkey, sm->kyber_privkey_len);
 		sm->kyber_privkey = NULL;
+  }
+  if (sm->kyber_shared_secret) {
+    bin_clear_free(sm->kyber_shared_secret, sm->kyber_shared_secret_len);
+    sm->kyber_shared_secret = NULL;
 	}
 #endif /* CONFIG_PQC */
 
@@ -1990,8 +1994,90 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 	sm->EAPOLKeyReceived = true;
 	sm->EAPOLKeyPairwise = !!(key_info & WPA_KEY_INFO_KEY_TYPE);
 	sm->EAPOLKeyRequest = !!(key_info & WPA_KEY_INFO_REQUEST);
-	if (msg == PAIRWISE_2)
+	if (msg == PAIRWISE_2){
 		os_memcpy(sm->SNonce, key->key_nonce, WPA_NONCE_LEN);
+  
+#ifdef CONFIG_PQC
+    /* [Standard Extension Draft] Kyber Message 2 Decapsulation */
+    if (sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) {
+        struct wpa_eapol_ie_parse kde;
+        bool decaps_success = false;
+        
+        os_memset(&kde, 0, sizeof(kde));
+        
+        /* 1. Parse and reassemble Ciphertext fragments */
+        if (wpa_parse_kde_ies(key_data, key_data_length, &kde) == 0 && 
+            kde.kyber_ciphertext && kde.kyber_ciphertext_len > 0 &&
+            sm->kyber_privkey) {
+            
+            wpa_printf(MSG_DEBUG, 
+                       "PQC: Ciphertext reassembled (%zu bytes). Starting Decapsulation...",
+                       kde.kyber_ciphertext_len);
+            
+            const char *kem_alg_name = 
+                (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ? 
+                OQS_KEM_alg_kyber_768 : OQS_KEM_alg_kyber_512;
+            
+            OQS_KEM *kem = OQS_KEM_new(kem_alg_name);
+            if (kem) {
+                /* 2. Validate ciphertext length */
+                if (kde.kyber_ciphertext_len == kem->length_ciphertext) {
+                    
+                    /* 3. Clean up old shared secret */
+                    if (sm->kyber_shared_secret) {
+                        bin_clear_free(sm->kyber_shared_secret, 
+                                      sm->kyber_shared_secret_len);
+                    }
+                    sm->kyber_shared_secret = os_zalloc(kem->length_shared_secret);
+                    sm->kyber_shared_secret_len = 0;
+                    
+                    if (!sm->kyber_shared_secret) {
+                        wpa_printf(MSG_ERROR, "PQC: Memory allocation failed");
+                    } else if (OQS_KEM_decaps(kem, sm->kyber_shared_secret, 
+                                             kde.kyber_ciphertext, 
+                                             sm->kyber_privkey) == OQS_SUCCESS) {
+                        /* 4. Decapsulation success */
+                        sm->kyber_shared_secret_len = kem->length_shared_secret;
+                        decaps_success = true;
+                        wpa_printf(MSG_DEBUG, 
+                                   "PQC: Decapsulation successful! SS derived (%zu bytes)", 
+                                   sm->kyber_shared_secret_len);
+                    } else {
+                        wpa_printf(MSG_ERROR, "PQC: Decapsulation failed");
+                        os_free(sm->kyber_shared_secret);
+                        sm->kyber_shared_secret = NULL;
+                    }
+                } else {
+                    wpa_printf(MSG_ERROR, 
+                               "PQC: Invalid Ciphertext length (expected=%zu, got=%zu)",
+                               kem->length_ciphertext, kde.kyber_ciphertext_len);
+                }
+                OQS_KEM_free(kem);
+            }
+        }
+        
+        /* 5. Securely erase private key (success or failure) */
+        if (sm->kyber_privkey) {
+            bin_clear_free(sm->kyber_privkey, sm->kyber_privkey_len);
+            sm->kyber_privkey = NULL;
+            sm->kyber_privkey_len = 0;
+        }
+        
+        /* 6. Always free parsing buffer */
+        if (kde.kyber_ciphertext) {
+            os_free(kde.kyber_ciphertext);
+            kde.kyber_ciphertext = NULL;
+        }
+        
+        /* 7. Abort on decapsulation failure */
+        if (!decaps_success) {
+            wpa_auth_vlogger(wpa_auth, sm->addr, LOGGER_INFO,
+                            "PQC decapsulation failed - rejecting msg 2/4");
+            goto out;
+        }
+    }
+#endif /* CONFIG_PQC */
+  }
 	wpa_sm_step(sm);
 
 out:

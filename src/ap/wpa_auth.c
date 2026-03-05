@@ -2034,15 +2034,90 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
                     if (!sm->kyber_shared_secret) {
                         wpa_printf(MSG_ERROR, "PQC: Memory allocation failed");
                     } else if (OQS_KEM_decaps(kem, sm->kyber_shared_secret, 
-                                             kde.kyber_ciphertext, 
-                                             sm->kyber_privkey) == OQS_SUCCESS) {
-                        /* 4. Decapsulation success */
-                        sm->kyber_shared_secret_len = kem->length_shared_secret;
-                        decaps_success = true;
-                        wpa_printf(MSG_DEBUG, 
-                                   "PQC: Decapsulation successful! SS derived (%zu bytes)", 
-                                   sm->kyber_shared_secret_len);
-                    } else {
+					                          kde.kyber_ciphertext, 
+					                          sm->kyber_privkey) == OQS_SUCCESS) {
+						/* 4. Decapsulation success */
+						sm->kyber_shared_secret_len = kem->length_shared_secret;
+						decaps_success = true;
+						wpa_printf(MSG_DEBUG, "PQC: Decapsulation successful! SS derived (%zu bytes)", 
+						           sm->kyber_shared_secret_len);
+
+						/* ========================================================== */
+						/* [Standard Extension Draft] Hybrid PMK Derivation (HKDF)    */
+						/* ========================================================== */
+						
+						/* Step 1: IKM = ss_Kyber || PMK_SAE */
+						size_t ikm_len = sm->kyber_shared_secret_len + sm->pmk_len;
+						u8 *ikm = os_malloc(ikm_len);
+						
+						if (!ikm) {
+							wpa_printf(MSG_ERROR, "PQC: IKM allocation failed");
+							decaps_success = false;
+							goto pqc_cleanup; /* 하단의 cleanup 레이블로 이동 (이전 논의 참조) */
+						}
+						
+						os_memcpy(ikm, sm->kyber_shared_secret, sm->kyber_shared_secret_len);
+						os_memcpy(ikm + sm->kyber_shared_secret_len, sm->PMK, sm->pmk_len);
+						
+						/* Step 2: Salt = SHA-256(Passphrase || SSID) */
+						u8 salt[SHA256_MAC_LEN];
+						const char *passphrase = NULL;
+						size_t pass_len = 0;
+						
+						if (wpa_auth->conf.ssid.wpa_passphrase) {
+							passphrase = wpa_auth->conf.ssid.wpa_passphrase;
+						} else if (wpa_auth->conf.wpa_passphrase) {
+							passphrase = wpa_auth->conf.wpa_passphrase;
+						}
+						
+						if (!passphrase) {
+							wpa_printf(MSG_ERROR, "PQC: Passphrase not available for Salt");
+							bin_clear_free(ikm, ikm_len);
+							decaps_success = false;
+							goto pqc_cleanup;
+						}
+						pass_len = os_strlen(passphrase);
+						
+						const u8 *ssid = wpa_auth->conf.ssid.ssid;
+						size_t ssid_len = wpa_auth->conf.ssid.ssid_len;
+						
+						size_t salt_input_len = pass_len + ssid_len;
+						u8 *salt_input = os_malloc(salt_input_len);
+						
+						if (!salt_input) {
+							wpa_printf(MSG_ERROR, "PQC: Salt input allocation failed");
+							bin_clear_free(ikm, ikm_len);
+							decaps_success = false;
+							goto pqc_cleanup;
+						}
+						
+						os_memcpy(salt_input, passphrase, pass_len);
+						os_memcpy(salt_input + pass_len, ssid, ssid_len);
+						
+						/* 해시로 Salt 추출 */
+						const u8 *addr[1] = { salt_input };
+						size_t len[1] = { salt_input_len };
+						sha256_vector(1, addr, len, salt);
+						bin_clear_free(salt_input, salt_input_len);
+						
+						/* Step 3: HKDF-Extract → PRK (새로운 마스터 키) */
+						u8 prk[SHA256_MAC_LEN];
+						hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, prk);
+						
+						/* Step 4: PMK 덮어쓰기 */
+						/* PRK는 32바이트(SHA256)이므로, pmk_len도 32로 명시적 강제 업데이트 */
+						sm->pmk_len = SHA256_MAC_LEN; 
+						os_memcpy(sm->PMK, prk, sm->pmk_len); 
+						
+						wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK successfully derived and installed!");
+						
+						/* 메모리 안전 소거 */
+						bin_clear_free(ikm, ikm_len);
+						os_memset(prk, 0, sizeof(prk));
+						os_memset(salt, 0, sizeof(salt));
+						/* ========================================================== */
+
+					} else {
                         wpa_printf(MSG_ERROR, "PQC: Decapsulation failed");
                         os_free(sm->kyber_shared_secret);
                         sm->kyber_shared_secret = NULL;

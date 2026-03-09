@@ -2053,7 +2053,7 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 						if (!ikm) {
 							wpa_printf(MSG_ERROR, "PQC: IKM allocation failed");
 							decaps_success = false;
-							goto pqc_cleanup; /* 하단의 cleanup 레이블로 이동 (이전 논의 참조) */
+							goto pqc_cleanup; /* 하단의 cleanup 레이블로 이동 */
 						}
 						
 						os_memcpy(ikm, sm->kyber_shared_secret, sm->kyber_shared_secret_len);
@@ -2130,6 +2130,7 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
                 OQS_KEM_free(kem);
             }
         }
+        pqc_cleanup:
         
         /* 5. Securely erase private key (success or failure) */
         if (sm->kyber_privkey) {

@@ -32,6 +32,9 @@
 #include "pmksa_cache.h"
 #include "wpa_i.h"
 #include "wpa_ie.h"
+#ifdef CONFIG_PQC
+#include <oqs/oqs.h>
+#endif /* CONFIG_PQC */
 
 
 static const u8 null_rsc[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -1000,10 +1003,10 @@ static void wpa_supplicant_process_1_of_4(struct wpa_sm *sm,
 	}
   /* [Standard Extension Draft] Kyber Encapsulation */
 #ifdef CONFIG_PQC
-	size_t expected_pubkey_len = (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ? 
+	size_t expected_pubkey_len = (sm->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ?
 	                             1184 : 800;
-	
-	if ((sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) && 
+
+	if ((sm->key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) &&
 	    ie.kyber_pubkey && ie.kyber_pubkey_len == expected_pubkey_len) {
 		
 		wpa_printf(MSG_DEBUG, "PQC: Starting Kyber Encapsulation (len=%zu)...",
@@ -1021,7 +1024,7 @@ static void wpa_supplicant_process_1_of_4(struct wpa_sm *sm,
 			sm->kyber_shared_secret_len = 0;
 		}
 		
-		const char *kem_alg_name = (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ? 
+		const char *kem_alg_name = (sm->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ?
 		                           OQS_KEM_alg_kyber_768 : OQS_KEM_alg_kyber_512;
 		
 		OQS_KEM *kem = OQS_KEM_new(kem_alg_name);

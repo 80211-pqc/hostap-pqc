@@ -1121,6 +1121,73 @@ pqc_cleanup:
 			    sm->snonce, WPA_NONCE_LEN);
 	}
 
+	/* ========================================================== */
+	/* [Standard Extension Draft] Hybrid PMK Derivation (HKDF)    */
+	/* ========================================================== */
+#ifdef CONFIG_PQC
+	if ((sm->key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) &&
+	    sm->kyber_shared_secret && sm->kyber_shared_secret_len > 0) {
+
+		wpa_printf(MSG_DEBUG, "PQC: Starting Hybrid PMK derivation (STA)...");
+
+		/* Step 1: IKM = ss_Kyber || PMK_SAE */
+		size_t ikm_len = sm->kyber_shared_secret_len + sm->pmk_len;
+		u8 *ikm = os_malloc(ikm_len);
+
+		if (!ikm) {
+			wpa_printf(MSG_ERROR, "PQC: IKM allocation failed");
+			goto failed;
+		}
+
+		os_memcpy(ikm, sm->kyber_shared_secret, sm->kyber_shared_secret_len);
+		os_memcpy(ikm + sm->kyber_shared_secret_len, sm->pmk, sm->pmk_len);
+
+		/* Step 2: Salt = SHA-256(Passphrase || SSID) */
+		u8 salt[SHA256_MAC_LEN];
+
+		if (!sm->passphrase) {
+			wpa_printf(MSG_ERROR, "PQC: Passphrase not available for Salt");
+			bin_clear_free(ikm, ikm_len);
+			goto failed;
+		}
+		size_t pass_len = os_strlen(sm->passphrase);
+
+		size_t salt_input_len = pass_len + sm->ssid_len;
+		u8 *salt_input = os_malloc(salt_input_len);
+
+		if (!salt_input) {
+			wpa_printf(MSG_ERROR, "PQC: Salt input allocation failed");
+			bin_clear_free(ikm, ikm_len);
+			goto failed;
+		}
+
+		os_memcpy(salt_input, sm->passphrase, pass_len);
+		os_memcpy(salt_input + pass_len, sm->ssid, sm->ssid_len);
+
+		/* 해시로 Salt 추출 */
+		const u8 *addr[1] = { salt_input };
+		size_t len[1] = { salt_input_len };
+		sha256_vector(1, addr, len, salt);
+		bin_clear_free(salt_input, salt_input_len);
+
+		/* Step 3: HKDF-Extract → PRK (새로운 마스터 키) */
+		u8 prk[SHA256_MAC_LEN];
+		hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, prk);
+
+		/* Step 4: PMK 덮어쓰기 */
+		sm->pmk_len = SHA256_MAC_LEN;
+		os_memcpy(sm->pmk, prk, sm->pmk_len);
+
+		wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK successfully derived and installed! (STA)");
+
+		/* 메모리 안전 소거 */
+		bin_clear_free(ikm, ikm_len);
+		os_memset(prk, 0, sizeof(prk));
+		os_memset(salt, 0, sizeof(salt));
+	}
+#endif /* CONFIG_PQC */
+	/* ========================================================== */
+
 	/* Calculate PTK which will be stored as a temporary PTK until it has
 	 * been verified when processing message 3/4. */
 	ptk = &sm->tptk;
@@ -4838,6 +4905,9 @@ void wpa_sm_set_config(struct wpa_sm *sm, struct rsn_supp_config *config)
 		}
 #endif /* CONFIG_FILS */
 		sm->beacon_prot = config->beacon_prot;
+#ifdef CONFIG_PQC
+		sm->passphrase = config->passphrase;
+#endif /* CONFIG_PQC */
 	} else {
 		sm->network_ctx = NULL;
 		sm->allowed_pairwise_cipher = 0;

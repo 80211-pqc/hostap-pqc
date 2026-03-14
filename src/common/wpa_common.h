@@ -287,9 +287,13 @@ struct wpa_eapol_key {
 /* Header Overhead: Max 6 fragments * 8 bytes = 48 -> Round to 64 */
 #define PQC_KDE_HEADER_OVERHEAD 64
 
-/* [Standard Extension Draft] PQC KDE type selectors (single-byte suite values) */
-#define RSN_KEY_DATA_PQC_512_KEY 31  /* 0x1F */
-#define RSN_KEY_DATA_PQC_768_KEY 32  /* 0x20 */
+/* [Standard Extension Draft] PQC KDE type selectors */
+/* KDE 파싱용 (u32 — wpa_common.c에서 RSN_SELECTOR_GET()과 비교) */
+#define RSN_KEY_DATA_PQC_512_KEY RSN_SELECTOR(0x00, 0x0f, 0xac, 31)
+#define RSN_KEY_DATA_PQC_768_KEY RSN_SELECTOR(0x00, 0x0f, 0xac, 32)
+/* KDE 작성용 (u8 — *pos++ = type_suite 로 1바이트 기록) */
+#define RSN_KEY_DATA_PQC_512_TYPE 31
+#define RSN_KEY_DATA_PQC_768_TYPE 32
 #endif /* CONFIG_PQC */
 
 

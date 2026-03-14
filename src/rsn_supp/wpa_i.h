@@ -239,6 +239,7 @@ struct wpa_sm {
 	size_t kyber_ciphertext_len;
 	u8 *kyber_shared_secret;
 	size_t kyber_shared_secret_len;
+	const char *passphrase;
 #endif /* CONFIG_PQC */
 
 	struct wpa_sm_mlo mlo;

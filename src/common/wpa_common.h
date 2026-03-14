@@ -283,9 +283,13 @@ struct wpa_eapol_key {
 
 /* Fragmentation Constants */
 /* Chunk Size Optimization: 255(Max) - 6(Header) - 4(Safety) = 245 */
-#define PQC_KDE_MAX_FRAGMENT 245 
+#define PQC_KDE_MAX_FRAGMENT 245
 /* Header Overhead: Max 6 fragments * 8 bytes = 48 -> Round to 64 */
 #define PQC_KDE_HEADER_OVERHEAD 64
+
+/* [Standard Extension Draft] PQC KDE type selectors (single-byte suite values) */
+#define RSN_KEY_DATA_PQC_512_KEY 31  /* 0x1F */
+#define RSN_KEY_DATA_PQC_768_KEY 32  /* 0x20 */
 #endif /* CONFIG_PQC */
 
 

@@ -1315,8 +1315,8 @@ pqc_cleanup:
 		size_t left = sm->kyber_ciphertext_len;
 		u8 *ct_pos = sm->kyber_ciphertext;
 		u8 frag_seq = 0;
-		u8 type_suite = (sm->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ? 
-		                 RSN_KEY_DATA_PQC_768_KEY : RSN_KEY_DATA_PQC_512_KEY;
+		u8 type_suite = (sm->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ?
+		                 RSN_KEY_DATA_PQC_768_TYPE : RSN_KEY_DATA_PQC_512_TYPE;
 
 		wpa_printf(MSG_DEBUG, "PQC: Fragmenting Ciphertext for Msg 2...");
 

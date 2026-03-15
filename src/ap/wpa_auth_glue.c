@@ -85,6 +85,9 @@ static void hostapd_wpa_auth_conf(struct hostapd_iface *iface,
 	if (wconf->ssid_len > SSID_MAX_LEN)
 		wconf->ssid_len = SSID_MAX_LEN;
 	os_memcpy(wconf->ssid, conf->ssid.ssid, wconf->ssid_len);
+#ifdef CONFIG_PQC
+	wconf->wpa_passphrase = conf->ssid.wpa_passphrase;
+#endif /* CONFIG_PQC */
 #ifdef CONFIG_IEEE80211R_AP
 	os_memcpy(wconf->mobility_domain, conf->mobility_domain,
 		  MOBILITY_DOMAIN_ID_LEN);

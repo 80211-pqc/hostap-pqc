@@ -2064,9 +2064,7 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 						const char *passphrase = NULL;
 						size_t pass_len = 0;
 						
-						if (wpa_auth->conf.ssid.wpa_passphrase) {
-							passphrase = wpa_auth->conf.ssid.wpa_passphrase;
-						} else if (wpa_auth->conf.wpa_passphrase) {
+						if (wpa_auth->conf.wpa_passphrase) {
 							passphrase = wpa_auth->conf.wpa_passphrase;
 						}
 						
@@ -2078,8 +2076,8 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 						}
 						pass_len = os_strlen(passphrase);
 						
-						const u8 *ssid = wpa_auth->conf.ssid.ssid;
-						size_t ssid_len = wpa_auth->conf.ssid.ssid_len;
+						const u8 *ssid = wpa_auth->conf.ssid;
+						size_t ssid_len = wpa_auth->conf.ssid_len;
 						
 						size_t salt_input_len = pass_len + ssid_len;
 						u8 *salt_input = os_malloc(salt_input_len);
@@ -2497,8 +2495,8 @@ static void wpa_send_eapol(struct wpa_authenticator *wpa_auth,
 /* [Standard Extension Draft] Kyber Key Injection Logic 
  * Condition: Msg 1 (Pairwise && ACK && !MIC && First Attempt)
  */
-if (pairwise && (key_info & WPA_KEY_INFO_ACK) && 
-	    !(key_info & WPA_KEY_INFO_MIC) && (ctr == 0)) {
+if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
+	    !(key_info & WPA_KEY_INFO_MIC) && (ctr == 1)) {
 
 		if (sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) {
 			
@@ -2510,10 +2508,10 @@ if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
 
 			if (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) {
 				kem_alg_name = OQS_KEM_alg_kyber_768;
-				type_suite = RSN_KEY_DATA_PQC_768_KEY; /* 0x20(32) */
+				type_suite = RSN_KEY_DATA_PQC_768_TYPE; /* 0x20(32) */
 			} else {
 				kem_alg_name = OQS_KEM_alg_kyber_512;
-				type_suite = RSN_KEY_DATA_PQC_512_KEY; /* 0x1F(31) */
+				type_suite = RSN_KEY_DATA_PQC_512_TYPE; /* 0x1F(31) */
 			}
 
 			/* 2. Init & Alloc */

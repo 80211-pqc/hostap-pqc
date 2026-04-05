@@ -288,10 +288,10 @@ struct wpa_eapol_key {
 #define PQC_KDE_HEADER_OVERHEAD 64
 
 /* [Standard Extension Draft] PQC KDE type selectors */
-/* KDE 파싱용 (u32 — wpa_common.c에서 RSN_SELECTOR_GET()과 비교) */
+/* For KDE parsing (u32 — compared with RSN_SELECTOR_GET() in wpa_common.c) */
 #define RSN_KEY_DATA_PQC_512_KEY RSN_SELECTOR(0x00, 0x0f, 0xac, 31)
 #define RSN_KEY_DATA_PQC_768_KEY RSN_SELECTOR(0x00, 0x0f, 0xac, 32)
-/* KDE 작성용 (u8 — *pos++ = type_suite 로 1바이트 기록) */
+/* For KDE construction (u8 — one byte written via '*pos++ = type_suite') */
 #define RSN_KEY_DATA_PQC_512_TYPE 31
 #define RSN_KEY_DATA_PQC_768_TYPE 32
 #endif /* CONFIG_PQC */

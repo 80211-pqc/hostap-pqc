@@ -2090,8 +2090,9 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 
 					} else {
                         wpa_printf(MSG_ERROR, "PQC: Decapsulation failed");
-                        os_free(sm->kyber_shared_secret);
+                        bin_clear_free(sm->kyber_shared_secret, sm->kyber_shared_secret_len);
                         sm->kyber_shared_secret = NULL;
+                        sm->kyber_shared_secret_len = 0;
                     }
                 } else {
                     wpa_printf(MSG_ERROR, 

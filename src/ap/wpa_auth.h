@@ -206,9 +206,6 @@ struct wpa_auth_config {
 #endif /* CONFIG_OCV */
 	u8 ssid[SSID_MAX_LEN];
 	size_t ssid_len;
-#ifdef CONFIG_PQC
-	char *wpa_passphrase;
-#endif /* CONFIG_PQC */
 #ifdef CONFIG_IEEE80211R_AP
 	u8 mobility_domain[MOBILITY_DOMAIN_ID_LEN];
 	u8 r0_key_holder[FT_R0KH_ID_MAX_LEN];

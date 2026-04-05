@@ -1053,8 +1053,9 @@ static void wpa_supplicant_process_1_of_4(struct wpa_sm *sm,
 				sm->kyber_ciphertext = NULL;
 			}
 			if (sm->kyber_shared_secret) {
-				os_free(sm->kyber_shared_secret);
+				bin_clear_free(sm->kyber_shared_secret, sm->kyber_shared_secret_len);
 				sm->kyber_shared_secret = NULL;
+				sm->kyber_shared_secret_len = 0;
 			}
 			OQS_KEM_free(kem);
 			goto pqc_cleanup;

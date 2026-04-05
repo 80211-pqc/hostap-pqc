@@ -1142,51 +1142,48 @@ pqc_cleanup:
 		os_memcpy(ikm, sm->kyber_shared_secret, sm->kyber_shared_secret_len);
 		os_memcpy(ikm + sm->kyber_shared_secret_len, sm->pmk, sm->pmk_len);
 
-		/* Step 2: Salt = SHA-256(Passphrase || SSID) */
+		/* Step 2: Salt = SHA-256("WPA3-PQC-Hybrid" || ANonce || SNonce) */
 		u8 salt[SHA256_MAC_LEN];
+		const u8 *salt_parts[3];
+		size_t salt_lens[3];
+		salt_parts[0] = (const u8 *) "WPA3-PQC-Hybrid";
+		salt_lens[0] = 15;
+		salt_parts[1] = sm->anonce;
+		salt_lens[1] = WPA_NONCE_LEN;
+		salt_parts[2] = sm->snonce;
+		salt_lens[2] = WPA_NONCE_LEN;
+		sha256_vector(3, salt_parts, salt_lens, salt);
 
-		if (!sm->passphrase) {
-			wpa_printf(MSG_ERROR, "PQC: Passphrase not available for Salt");
-			bin_clear_free(ikm, ikm_len);
-			goto failed;
-		}
-		size_t pass_len = os_strlen(sm->passphrase);
-
-		size_t salt_input_len = pass_len + sm->ssid_len;
-		u8 *salt_input = os_malloc(salt_input_len);
-
-		if (!salt_input) {
-			wpa_printf(MSG_ERROR, "PQC: Salt input allocation failed");
-			bin_clear_free(ikm, ikm_len);
-			goto failed;
-		}
-
-		os_memcpy(salt_input, sm->passphrase, pass_len);
-		os_memcpy(salt_input + pass_len, sm->ssid, sm->ssid_len);
-
-		/* 해시로 Salt 추출 */
-		const u8 *addr[1] = { salt_input };
-		size_t len[1] = { salt_input_len };
-		sha256_vector(1, addr, len, salt);
-		bin_clear_free(salt_input, salt_input_len);
-
-		/* Step 3: HKDF-Extract → PRK (새로운 마스터 키) */
+		/* Step 3: HKDF-Extract → PRK */
 		u8 prk[SHA256_MAC_LEN];
 		hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, prk);
 
-		/* Step 4: PMK 덮어쓰기 */
-		sm->pmk_len = SHA256_MAC_LEN;
-		os_memcpy(sm->pmk, prk, sm->pmk_len);
+		/* Step 4: Store PRK — commit to PMK after msg 3/4 MIC verification */
+		os_memcpy(sm->pqc_tpmk, prk, SHA256_MAC_LEN);
+		sm->pqc_tpmk_len = SHA256_MAC_LEN;
 
-		wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK successfully derived and installed! (STA)");
+		wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK derived and stored (STA) - will commit after MIC");
 
-		/* 메모리 안전 소거 */
+		/* Secure erase temporaries */
 		bin_clear_free(ikm, ikm_len);
 		os_memset(prk, 0, sizeof(prk));
 		os_memset(salt, 0, sizeof(salt));
 	}
 #endif /* CONFIG_PQC */
 	/* ========================================================== */
+
+#ifdef CONFIG_PQC
+	/* [Standard Extension Draft] Commit Hybrid PMK before PTK derivation
+	 * so that both AP and STA derive PTK from the same key (Hybrid PMK).
+	 * MIC in Msg 2/4 must be computed with Hybrid-PMK-derived PTK. */
+	if (sm->pqc_tpmk_len > 0) {
+		os_memcpy(sm->pmk, sm->pqc_tpmk, sm->pqc_tpmk_len);
+		sm->pmk_len = sm->pqc_tpmk_len;
+		os_memset(sm->pqc_tpmk, 0, sizeof(sm->pqc_tpmk));
+		sm->pqc_tpmk_len = 0;
+		wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK committed before PTK derivation (STA)");
+	}
+#endif /* CONFIG_PQC */
 
 	/* Calculate PTK which will be stored as a temporary PTK until it has
 	 * been verified when processing message 3/4. */
@@ -4905,9 +4902,6 @@ void wpa_sm_set_config(struct wpa_sm *sm, struct rsn_supp_config *config)
 		}
 #endif /* CONFIG_FILS */
 		sm->beacon_prot = config->beacon_prot;
-#ifdef CONFIG_PQC
-		sm->passphrase = config->passphrase;
-#endif /* CONFIG_PQC */
 	} else {
 		sm->network_ctx = NULL;
 		sm->allowed_pairwise_cipher = 0;

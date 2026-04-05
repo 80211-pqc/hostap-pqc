@@ -2002,6 +2002,8 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
     if (sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) {
         struct wpa_eapol_ie_parse kde;
         bool decaps_success = false;
+        u8 temp_prk[SHA256_MAC_LEN];
+        os_memset(temp_prk, 0, sizeof(temp_prk));
         
         os_memset(&kde, 0, sizeof(kde));
         
@@ -2059,57 +2061,28 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 						os_memcpy(ikm, sm->kyber_shared_secret, sm->kyber_shared_secret_len);
 						os_memcpy(ikm + sm->kyber_shared_secret_len, sm->PMK, sm->pmk_len);
 						
-						/* Step 2: Salt = SHA-256(Passphrase || SSID) */
+						/* Step 2: Salt = SHA-256("WPA3-PQC-Hybrid" || ANonce || SNonce) */
 						u8 salt[SHA256_MAC_LEN];
-						const char *passphrase = NULL;
-						size_t pass_len = 0;
-						
-						if (wpa_auth->conf.wpa_passphrase) {
-							passphrase = wpa_auth->conf.wpa_passphrase;
-						}
-						
-						if (!passphrase) {
-							wpa_printf(MSG_ERROR, "PQC: Passphrase not available for Salt");
-							bin_clear_free(ikm, ikm_len);
-							decaps_success = false;
-							goto pqc_cleanup;
-						}
-						pass_len = os_strlen(passphrase);
-						
-						const u8 *ssid = wpa_auth->conf.ssid;
-						size_t ssid_len = wpa_auth->conf.ssid_len;
-						
-						size_t salt_input_len = pass_len + ssid_len;
-						u8 *salt_input = os_malloc(salt_input_len);
-						
-						if (!salt_input) {
-							wpa_printf(MSG_ERROR, "PQC: Salt input allocation failed");
-							bin_clear_free(ikm, ikm_len);
-							decaps_success = false;
-							goto pqc_cleanup;
-						}
-						
-						os_memcpy(salt_input, passphrase, pass_len);
-						os_memcpy(salt_input + pass_len, ssid, ssid_len);
-						
-						/* 해시로 Salt 추출 */
-						const u8 *addr[1] = { salt_input };
-						size_t len[1] = { salt_input_len };
-						sha256_vector(1, addr, len, salt);
-						bin_clear_free(salt_input, salt_input_len);
-						
-						/* Step 3: HKDF-Extract → PRK (새로운 마스터 키) */
+						const u8 *salt_parts[3];
+						size_t salt_lens[3];
+						salt_parts[0] = (const u8 *) "WPA3-PQC-Hybrid";
+						salt_lens[0] = 15;
+						salt_parts[1] = sm->ANonce;
+						salt_lens[1] = WPA_NONCE_LEN;
+						salt_parts[2] = sm->SNonce;
+						salt_lens[2] = WPA_NONCE_LEN;
+						sha256_vector(3, salt_parts, salt_lens, salt);
+
+						/* Step 3: HKDF-Extract → PRK */
 						u8 prk[SHA256_MAC_LEN];
 						hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, prk);
-						
-						/* Step 4: PMK 덮어쓰기 */
-						/* PRK는 32바이트(SHA256)이므로, pmk_len도 32로 명시적 강제 업데이트 */
-						sm->pmk_len = SHA256_MAC_LEN; 
-						os_memcpy(sm->PMK, prk, sm->pmk_len); 
-						
-						wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK successfully derived and installed!");
-						
-						/* 메모리 안전 소거 */
+
+						/* Step 4: Store PRK — commit after decaps_success confirmed */
+						os_memcpy(temp_prk, prk, SHA256_MAC_LEN);
+
+						wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK derived and stored (AP) - will commit after cleanup");
+
+						/* Secure erase temporaries */
 						bin_clear_free(ikm, ikm_len);
 						os_memset(prk, 0, sizeof(prk));
 						os_memset(salt, 0, sizeof(salt));
@@ -2149,6 +2122,12 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
                             "PQC decapsulation failed - rejecting msg 2/4");
             goto out;
         }
+
+        /* 8. Commit Hybrid PMK after successful decapsulation */
+        sm->pmk_len = SHA256_MAC_LEN;
+        os_memcpy(sm->PMK, temp_prk, SHA256_MAC_LEN);
+        os_memset(temp_prk, 0, sizeof(temp_prk));
+        wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK committed (AP)");
     }
 #endif /* CONFIG_PQC */
   }

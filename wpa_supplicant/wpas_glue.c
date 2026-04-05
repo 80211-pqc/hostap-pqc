@@ -1586,9 +1586,6 @@ void wpa_supplicant_rsn_supp_set_config(struct wpa_supplicant *wpa_s,
 		conf.force_kdk_derivation = wpa_s->conf->force_kdk_derivation;
 #endif /* CONFIG_TESTING_OPTIONS */
 #endif /* CONFIG_PASN */
-#ifdef CONFIG_PQC
-		conf.passphrase = ssid->passphrase;
-#endif /* CONFIG_PQC */
 	}
 	wpa_sm_set_config(wpa_s->wpa, ssid ? &conf : NULL);
 }

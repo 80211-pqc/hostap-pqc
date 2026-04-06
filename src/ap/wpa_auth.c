@@ -2080,22 +2080,17 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 						else
 							sha256_vector(3, salt_parts, salt_lens, salt);
 
-						/* Step 3: HKDF-Extract → PRK */
-						u8 prk[SHA384_MAC_LEN];
+						/* Step 3: HKDF-Extract → PRK (직접 temp_prk에 저장) */
 						if (use_768)
-							hmac_sha384(salt, SHA384_MAC_LEN, ikm, ikm_len, prk);
+							hmac_sha384(salt, SHA384_MAC_LEN, ikm, ikm_len, temp_prk);
 						else
-							hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, prk);
-
-						/* Step 4: Store PRK — commit after decaps_success confirmed */
-						os_memcpy(temp_prk, prk, prk_len);
+							hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, temp_prk);
 						temp_prk_len = prk_len;
 
 						wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK derived and stored (AP) - will commit after cleanup");
 
 						/* Secure erase temporaries */
 						bin_clear_free(ikm, ikm_len);
-						os_memset(prk, 0, sizeof(prk));
 						os_memset(salt, 0, sizeof(salt));
 						/* ========================================================== */
 

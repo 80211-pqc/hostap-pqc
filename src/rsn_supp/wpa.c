@@ -1161,22 +1161,17 @@ pqc_cleanup:
 		else
 			sha256_vector(3, salt_parts, salt_lens, salt);
 
-		/* Step 3: HKDF-Extract → PRK */
-		u8 prk[SHA384_MAC_LEN];
+		/* Step 3: HKDF-Extract → PRK (직접 pqc_tpmk에 저장) */
 		if (use_768)
-			hmac_sha384(salt, SHA384_MAC_LEN, ikm, ikm_len, prk);
+			hmac_sha384(salt, SHA384_MAC_LEN, ikm, ikm_len, sm->pqc_tpmk);
 		else
-			hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, prk);
-
-		/* Step 4: Store PRK — commit to PMK before PTK derivation */
-		os_memcpy(sm->pqc_tpmk, prk, prk_len);
+			hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, sm->pqc_tpmk);
 		sm->pqc_tpmk_len = prk_len;
 
 		wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK derived and stored (STA) - will commit after MIC");
 
 		/* Secure erase temporaries */
 		bin_clear_free(ikm, ikm_len);
-		os_memset(prk, 0, sizeof(prk));
 		os_memset(salt, 0, sizeof(salt));
 	}
 #endif /* CONFIG_PQC */

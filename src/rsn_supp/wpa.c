@@ -1143,8 +1143,11 @@ pqc_cleanup:
 		os_memcpy(ikm, sm->kyber_shared_secret, sm->kyber_shared_secret_len);
 		os_memcpy(ikm + sm->kyber_shared_secret_len, sm->pmk, sm->pmk_len);
 
-		/* Step 2: Salt = SHA-256("WPA3-PQC-Hybrid" || ANonce || SNonce) */
-		u8 salt[SHA256_MAC_LEN];
+		/* Step 2: Salt = SHA-XXX("WPA3-PQC-Hybrid" || ANonce || SNonce)
+		 * kyber768 → SHA-384, kyber512 → SHA-256 */
+		int use_768 = !!(sm->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768);
+		size_t prk_len = use_768 ? SHA384_MAC_LEN : SHA256_MAC_LEN;
+		u8 salt[SHA384_MAC_LEN];
 		const u8 *salt_parts[3];
 		size_t salt_lens[3];
 		salt_parts[0] = (const u8 *) PQC_HKDF_SALT_LABEL;
@@ -1153,15 +1156,21 @@ pqc_cleanup:
 		salt_lens[1] = WPA_NONCE_LEN;
 		salt_parts[2] = sm->snonce;
 		salt_lens[2] = WPA_NONCE_LEN;
-		sha256_vector(3, salt_parts, salt_lens, salt);
+		if (use_768)
+			sha384_vector(3, salt_parts, salt_lens, salt);
+		else
+			sha256_vector(3, salt_parts, salt_lens, salt);
 
 		/* Step 3: HKDF-Extract → PRK */
-		u8 prk[SHA256_MAC_LEN];
-		hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, prk);
+		u8 prk[SHA384_MAC_LEN];
+		if (use_768)
+			hmac_sha384(salt, SHA384_MAC_LEN, ikm, ikm_len, prk);
+		else
+			hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, prk);
 
-		/* Step 4: Store PRK — commit to PMK after msg 3/4 MIC verification */
-		os_memcpy(sm->pqc_tpmk, prk, SHA256_MAC_LEN);
-		sm->pqc_tpmk_len = SHA256_MAC_LEN;
+		/* Step 4: Store PRK — commit to PMK before PTK derivation */
+		os_memcpy(sm->pqc_tpmk, prk, prk_len);
+		sm->pqc_tpmk_len = prk_len;
 
 		wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK derived and stored (STA) - will commit after MIC");
 

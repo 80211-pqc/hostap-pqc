@@ -2002,8 +2002,9 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
     if (sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) {
         struct wpa_eapol_ie_parse kde;
         bool decaps_success = false;
-        u8 temp_prk[SHA256_MAC_LEN];
+        u8 temp_prk[SHA384_MAC_LEN];
         os_memset(temp_prk, 0, sizeof(temp_prk));
+        size_t temp_prk_len = 0;
         
         os_memset(&kde, 0, sizeof(kde));
         
@@ -2061,8 +2062,11 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 						os_memcpy(ikm, sm->kyber_shared_secret, sm->kyber_shared_secret_len);
 						os_memcpy(ikm + sm->kyber_shared_secret_len, sm->PMK, sm->pmk_len);
 						
-						/* Step 2: Salt = SHA-256("WPA3-PQC-Hybrid" || ANonce || SNonce) */
-						u8 salt[SHA256_MAC_LEN];
+						/* Step 2: Salt = SHA-XXX("WPA3-PQC-Hybrid" || ANonce || SNonce)
+						 * kyber768 → SHA-384, kyber512 → SHA-256 */
+						int use_768 = !!(sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768);
+						size_t prk_len = use_768 ? SHA384_MAC_LEN : SHA256_MAC_LEN;
+						u8 salt[SHA384_MAC_LEN];
 						const u8 *salt_parts[3];
 						size_t salt_lens[3];
 						salt_parts[0] = (const u8 *) PQC_HKDF_SALT_LABEL;
@@ -2071,14 +2075,21 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 						salt_lens[1] = WPA_NONCE_LEN;
 						salt_parts[2] = sm->SNonce;
 						salt_lens[2] = WPA_NONCE_LEN;
-						sha256_vector(3, salt_parts, salt_lens, salt);
+						if (use_768)
+							sha384_vector(3, salt_parts, salt_lens, salt);
+						else
+							sha256_vector(3, salt_parts, salt_lens, salt);
 
 						/* Step 3: HKDF-Extract → PRK */
-						u8 prk[SHA256_MAC_LEN];
-						hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, prk);
+						u8 prk[SHA384_MAC_LEN];
+						if (use_768)
+							hmac_sha384(salt, SHA384_MAC_LEN, ikm, ikm_len, prk);
+						else
+							hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, prk);
 
 						/* Step 4: Store PRK — commit after decaps_success confirmed */
-						os_memcpy(temp_prk, prk, SHA256_MAC_LEN);
+						os_memcpy(temp_prk, prk, prk_len);
+						temp_prk_len = prk_len;
 
 						wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK derived and stored (AP) - will commit after cleanup");
 
@@ -2125,8 +2136,8 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
         }
 
         /* 8. Commit Hybrid PMK after successful decapsulation */
-        sm->pmk_len = SHA256_MAC_LEN;
-        os_memcpy(sm->PMK, temp_prk, SHA256_MAC_LEN);
+        sm->pmk_len = temp_prk_len;
+        os_memcpy(sm->PMK, temp_prk, temp_prk_len);
         os_memset(temp_prk, 0, sizeof(temp_prk));
         wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK committed (AP)");
     }
@@ -2475,8 +2486,8 @@ static void wpa_send_eapol(struct wpa_authenticator *wpa_auth,
 /* [Standard Extension Draft] Kyber Key Injection Logic 
  * Condition: Msg 1 (Pairwise && ACK && !MIC && First Attempt)
  */
-if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
-	    !(key_info & WPA_KEY_INFO_MIC) && (ctr == 1)) {
+	if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
+	    !(key_info & WPA_KEY_INFO_MIC) && (ctr == 1)) {hostap/src/rsn_supp/wpa.c
 
 		if (sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) {
 			

@@ -294,6 +294,9 @@ struct wpa_eapol_key {
 /* For KDE construction (u8 — one byte written via '*pos++ = type_suite') */
 #define RSN_KEY_DATA_PQC_512_TYPE 31
 #define RSN_KEY_DATA_PQC_768_TYPE 32
+/* Salt label for Hybrid PMK derivation */
+#define PQC_HKDF_SALT_LABEL     "WPA3-PQC-Hybrid"
+#define PQC_HKDF_SALT_LABEL_LEN (sizeof(PQC_HKDF_SALT_LABEL) - 1)
 #endif /* CONFIG_PQC */
 
 

@@ -2065,8 +2065,8 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 						u8 salt[SHA256_MAC_LEN];
 						const u8 *salt_parts[3];
 						size_t salt_lens[3];
-						salt_parts[0] = (const u8 *) "WPA3-PQC-Hybrid";
-						salt_lens[0] = 15;
+						salt_parts[0] = (const u8 *) PQC_HKDF_SALT_LABEL;
+						salt_lens[0] = PQC_HKDF_SALT_LABEL_LEN;
 						salt_parts[1] = sm->ANonce;
 						salt_lens[1] = WPA_NONCE_LEN;
 						salt_parts[2] = sm->SNonce;

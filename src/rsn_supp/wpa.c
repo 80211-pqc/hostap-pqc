@@ -1182,6 +1182,11 @@ pqc_cleanup:
 	 * so that both AP and STA derive PTK from the same key (Hybrid PMK).
 	 * MIC in Msg 2/4 must be computed with Hybrid-PMK-derived PTK. */
 	if (sm->pqc_tpmk_len > 0) {
+		/* Save SAE PMK only on first commit (not on retransmit) */
+		if (sm->pqc_sae_pmk_len == 0) {
+			os_memcpy(sm->pqc_sae_pmk, sm->pmk, sm->pmk_len);
+			sm->pqc_sae_pmk_len = sm->pmk_len;
+		}
 		os_memcpy(sm->pmk, sm->pqc_tpmk, sm->pqc_tpmk_len);
 		sm->pmk_len = sm->pqc_tpmk_len;
 		os_memset(sm->pqc_tpmk, 0, sizeof(sm->pqc_tpmk));
@@ -3657,6 +3662,14 @@ static void wpa_sm_tptk_to_ptk(struct wpa_sm *sm)
 	os_memcpy(&sm->ptk, &sm->tptk, sizeof(sm->ptk));
 	os_memset(&sm->tptk, 0, sizeof(sm->tptk));
 
+#ifdef CONFIG_PQC
+	/* MIC verified — SAE PMK backup no longer needed */
+	if (sm->pqc_sae_pmk_len > 0) {
+		forced_memzero(sm->pqc_sae_pmk, sizeof(sm->pqc_sae_pmk));
+		sm->pqc_sae_pmk_len = 0;
+	}
+#endif /* CONFIG_PQC */
+
 	if (wpa_sm_pmf_enabled(sm)) {
 		os_memcpy(sm->last_kck, sm->ptk.kck, sm->ptk.kck_len);
 		sm->last_kck_len = sm->ptk.kck_len;
@@ -4353,6 +4366,16 @@ int wpa_sm_rx_eapol(struct wpa_sm *sm, const u8 *src_addr,
 	ret = 1;
 
 out:
+#ifdef CONFIG_PQC
+	if (sm->pqc_sae_pmk_len > 0 && ret != 1) {
+		/* MIC verification failed — restore original SAE PMK */
+		os_memcpy(sm->pmk, sm->pqc_sae_pmk, sm->pqc_sae_pmk_len);
+		sm->pmk_len = sm->pqc_sae_pmk_len;
+		forced_memzero(sm->pqc_sae_pmk, sizeof(sm->pqc_sae_pmk));
+		sm->pqc_sae_pmk_len = 0;
+		wpa_printf(MSG_DEBUG, "PQC: SAE PMK restored after MIC failure");
+	}
+#endif /* CONFIG_PQC */
 	bin_clear_free(tmp, data_len);
 	return ret;
 }

@@ -2130,11 +2130,15 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
             goto out;
         }
 
-        /* 8. Commit Hybrid PMK after successful decapsulation */
-        sm->pmk_len = temp_prk_len;
-        os_memcpy(sm->PMK, temp_prk, temp_prk_len);
-        os_memset(temp_prk, 0, sizeof(temp_prk));
-        wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK committed (AP)");
+        /* 8. Store Hybrid PMK in pqc_tpmk - commit after Msg 2/4 MIC verification.
+         * Reason: sm->pmk_len must stay at 32 (SAE PMK) during PTKCALCNEGOTIATING
+         * so mic_len=16 matches what the STA sent in Msg 2/4.
+         * After MIC verification succeeds, PTKCALCNEGOTIATING will commit pqc_tpmk
+         * and re-derive PTK from the Hybrid PMK for Msg 3/4. */
+        os_memcpy(sm->pqc_tpmk, temp_prk, temp_prk_len);
+        sm->pqc_tpmk_len = temp_prk_len;
+        forced_memzero(temp_prk, sizeof(temp_prk));
+        wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK stored pending MIC verification (AP)");
     }
 #endif /* CONFIG_PQC */
   }
@@ -2482,7 +2486,7 @@ static void wpa_send_eapol(struct wpa_authenticator *wpa_auth,
  * Condition: Msg 1 (Pairwise && ACK && !MIC && First Attempt)
  */
 	if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
-	    !(key_info & WPA_KEY_INFO_MIC) && (ctr == 1)) {hostap/src/rsn_supp/wpa.c
+	    !(key_info & WPA_KEY_INFO_MIC) && (ctr == 1)) {
 
 		if (sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) {
 			
@@ -4117,6 +4121,30 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
 				sm->pmk_len = pmk_len;
 			}
 			ok = 1;
+#ifdef CONFIG_PQC
+			/* Msg 2/4 MIC verified with SAE PMK (mic_len=16).
+			 * Now commit the Hybrid PMK and re-derive PTK so that
+			 * Msg 3/4 is built using the Hybrid PMK PTK (mic_len=24). */
+			if ((sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 |
+						 WPA_KEY_MGMT_SAE_PQC_768)) &&
+			    sm->pqc_tpmk_len > 0) {
+				os_memcpy(sm->PMK, sm->pqc_tpmk, sm->pqc_tpmk_len);
+				sm->pmk_len = sm->pqc_tpmk_len;
+				forced_memzero(sm->pqc_tpmk, sizeof(sm->pqc_tpmk));
+				sm->pqc_tpmk_len = 0;
+				/* Re-derive PTK from Hybrid PMK for Msg 3/4 */
+				if (wpa_derive_ptk(sm, sm->SNonce, sm->PMK,
+						   sm->pmk_len, &PTK,
+						   owe_ptk_workaround == 2,
+						   pmk_r0, pmk_r1, pmk_r0_name,
+						   &key_len, no_kdk) < 0) {
+					ok = 0;
+					break;
+				}
+				wpa_printf(MSG_DEBUG,
+					   "PQC: Hybrid PMK committed and PTK re-derived (AP, Msg 3/4)");
+			}
+#endif /* CONFIG_PQC */
 			break;
 		}
 

@@ -1152,7 +1152,7 @@ pqc_cleanup:
 		size_t salt_lens[3];
 		salt_parts[0] = (const u8 *) PQC_HKDF_SALT_LABEL;
 		salt_lens[0] = PQC_HKDF_SALT_LABEL_LEN;
-		salt_parts[1] = sm->anonce;
+		salt_parts[1] = key->key_nonce; /* ANonce from Msg 1/4 (sm->anonce not set yet) */
 		salt_lens[1] = WPA_NONCE_LEN;
 		salt_parts[2] = sm->snonce;
 		salt_lens[2] = WPA_NONCE_LEN;
@@ -1177,23 +1177,11 @@ pqc_cleanup:
 #endif /* CONFIG_PQC */
 	/* ========================================================== */
 
-#ifdef CONFIG_PQC
-	/* [Standard Extension Draft] Commit Hybrid PMK before PTK derivation
-	 * so that both AP and STA derive PTK from the same key (Hybrid PMK).
-	 * MIC in Msg 2/4 must be computed with Hybrid-PMK-derived PTK. */
-	if (sm->pqc_tpmk_len > 0) {
-		/* Save SAE PMK only on first commit (not on retransmit) */
-		if (sm->pqc_sae_pmk_len == 0) {
-			os_memcpy(sm->pqc_sae_pmk, sm->pmk, sm->pmk_len);
-			sm->pqc_sae_pmk_len = sm->pmk_len;
-		}
-		os_memcpy(sm->pmk, sm->pqc_tpmk, sm->pqc_tpmk_len);
-		sm->pmk_len = sm->pqc_tpmk_len;
-		os_memset(sm->pqc_tpmk, 0, sizeof(sm->pqc_tpmk));
-		sm->pqc_tpmk_len = 0;
-		wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK committed before PTK derivation (STA)");
-	}
-#endif /* CONFIG_PQC */
+	/* [Standard Extension Draft] NOTE: Hybrid PMK (in pqc_tpmk) is NOT committed
+	 * here. Msg 2/4 is sent with SAE PMK (mic_len=16) so the AP can parse it
+	 * correctly (AP also has SAE PMK at this stage, mic_len=16).
+	 * Hybrid PMK will be committed when processing Msg 3/4, which is built
+	 * by the AP after it derives the Hybrid PMK from the received ciphertext. */
 
 	/* Calculate PTK which will be stored as a temporary PTK until it has
 	 * been verified when processing message 3/4. */
@@ -4094,6 +4082,44 @@ int wpa_sm_rx_eapol(struct wpa_sm *sm, const u8 *src_addr,
 #ifdef CONFIG_IEEE80211R
 	sm->ft_completed = 0;
 #endif /* CONFIG_IEEE80211R */
+
+#ifdef CONFIG_PQC
+	/* [Standard Extension Draft] For SAE-PQC: if we have a pending Hybrid PMK
+	 * (pqc_tpmk_len > 0) and the incoming frame is Msg 3/4 (pairwise + ACK + MIC),
+	 * commit Hybrid PMK NOW so mic_len is computed correctly (24 vs 16).
+	 * The AP built Msg 3/4 with mic_len=24 (Hybrid PMK), so we must match. */
+	if ((sm->key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) &&
+	    sm->pqc_tpmk_len > 0 &&
+	    len >= sizeof(struct ieee802_1x_hdr) + sizeof(struct wpa_eapol_key)) {
+		const struct ieee802_1x_hdr *h = (const struct ieee802_1x_hdr *) buf;
+		const struct wpa_eapol_key *k = (const struct wpa_eapol_key *) (h + 1);
+		u16 kinfo = WPA_GET_BE16(k->key_info);
+		/* Msg 3/4: KEY_TYPE(pairwise) + ACK + MIC + ANonce must match Msg 1/4 */
+		if ((kinfo & WPA_KEY_INFO_KEY_TYPE) &&
+		    (kinfo & WPA_KEY_INFO_ACK) &&
+		    (kinfo & WPA_KEY_INFO_MIC) &&
+		    os_memcmp(k->key_nonce, sm->anonce, WPA_NONCE_LEN) == 0) {
+			/* Commit Hybrid PMK */
+			if (sm->pqc_sae_pmk_len == 0) {
+				os_memcpy(sm->pqc_sae_pmk, sm->pmk, sm->pmk_len);
+				sm->pqc_sae_pmk_len = sm->pmk_len;
+			}
+			os_memcpy(sm->pmk, sm->pqc_tpmk, sm->pqc_tpmk_len);
+			sm->pmk_len = sm->pqc_tpmk_len;
+			forced_memzero(sm->pqc_tpmk, sizeof(sm->pqc_tpmk));
+			sm->pqc_tpmk_len = 0;
+			/* Re-derive TPTK from Hybrid PMK so MIC verify uses correct KCK */
+			if (wpa_derive_ptk(sm, src_addr, k, &sm->tptk) == 0) {
+				sm->tptk_set = 1;
+				wpa_printf(MSG_DEBUG,
+					   "PQC: Hybrid PMK committed and TPTK re-derived for Msg 3/4 (STA)");
+			} else {
+				wpa_printf(MSG_ERROR,
+					   "PQC: Failed to re-derive TPTK with Hybrid PMK");
+			}
+		}
+	}
+#endif /* CONFIG_PQC */
 
 	pmk_len = sm->pmk_len;
 	if (!pmk_len && sm->cur_pmksa)

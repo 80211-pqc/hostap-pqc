@@ -4128,6 +4128,12 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
 			if ((sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 |
 						 WPA_KEY_MGMT_SAE_PQC_768)) &&
 			    sm->pqc_tpmk_len > 0) {
+				/* Back up SAE PMK before overwriting — restore if
+				 * PTK re-derivation fails. */
+				u8 sae_pmk_backup[PMK_LEN_MAX];
+				size_t sae_pmk_backup_len = sm->pmk_len;
+				os_memcpy(sae_pmk_backup, sm->PMK, sm->pmk_len);
+
 				os_memcpy(sm->PMK, sm->pqc_tpmk, sm->pqc_tpmk_len);
 				sm->pmk_len = sm->pqc_tpmk_len;
 				forced_memzero(sm->pqc_tpmk, sizeof(sm->pqc_tpmk));
@@ -4138,9 +4144,16 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
 						   owe_ptk_workaround == 2,
 						   pmk_r0, pmk_r1, pmk_r0_name,
 						   &key_len, no_kdk) < 0) {
+					/* Restore SAE PMK so handshake can retry */
+					os_memcpy(sm->PMK, sae_pmk_backup,
+						  sae_pmk_backup_len);
+					sm->pmk_len = sae_pmk_backup_len;
+					forced_memzero(sae_pmk_backup,
+						       sizeof(sae_pmk_backup));
 					ok = 0;
 					break;
 				}
+				forced_memzero(sae_pmk_backup, sizeof(sae_pmk_backup));
 				wpa_printf(MSG_DEBUG,
 					   "PQC: Hybrid PMK committed and PTK re-derived (AP, Msg 3/4)");
 			}

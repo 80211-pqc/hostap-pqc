@@ -1122,10 +1122,8 @@ pqc_cleanup:
 			    sm->snonce, WPA_NONCE_LEN);
 	}
 
-	/* ========================================================== */
-	/* [Standard Extension Draft] Hybrid PMK Derivation (HKDF)    */
-	/* ========================================================== */
 #ifdef CONFIG_PQC
+	/* [Standard Extension Draft] Hybrid PMK Derivation (HKDF) */
 	if ((sm->key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) &&
 	    sm->kyber_shared_secret && sm->kyber_shared_secret_len > 0) {
 
@@ -1172,7 +1170,12 @@ pqc_cleanup:
 
 		/* Secure erase temporaries */
 		bin_clear_free(ikm, ikm_len);
-		os_memset(salt, 0, sizeof(salt));
+		forced_memzero(salt, sizeof(salt));
+		/* kyber_shared_secret no longer needed — hybrid PMK stored in pqc_tpmk */
+		bin_clear_free(sm->kyber_shared_secret, sm->kyber_shared_secret_len);
+		sm->kyber_shared_secret = NULL;
+		sm->kyber_shared_secret_len = 0;
+
 	}
 #endif /* CONFIG_PQC */
 
@@ -3644,10 +3647,14 @@ static void wpa_sm_tptk_to_ptk(struct wpa_sm *sm)
 	os_memset(&sm->tptk, 0, sizeof(sm->tptk));
 
 #ifdef CONFIG_PQC
-	/* MIC verified — SAE PMK backup no longer needed */
+	/* MIC verified — erase all PQC temporaries */
 	if (sm->pqc_sae_pmk_len > 0) {
 		forced_memzero(sm->pqc_sae_pmk, sizeof(sm->pqc_sae_pmk));
 		sm->pqc_sae_pmk_len = 0;
+	}
+	if (sm->pqc_tpmk_len > 0) {
+		forced_memzero(sm->pqc_tpmk, sizeof(sm->pqc_tpmk));
+		sm->pqc_tpmk_len = 0;
 	}
 #endif /* CONFIG_PQC */
 
@@ -4092,15 +4099,16 @@ int wpa_sm_rx_eapol(struct wpa_sm *sm, const u8 *src_addr,
 		    (kinfo & WPA_KEY_INFO_ACK) &&
 		    (kinfo & WPA_KEY_INFO_MIC) &&
 		    os_memcmp(k->key_nonce, sm->anonce, WPA_NONCE_LEN) == 0) {
-			/* Commit Hybrid PMK */
+			/* Commit Hybrid PMK — keep pqc_tpmk intact for retry.
+			 * pqc_tpmk is only erased on MIC success (wpa_sm_tptk_to_ptk).
+			 * On MIC failure, SAE PMK is restored and pqc_tpmk remains
+			 * available so the next Msg 3/4 retransmit can commit again. */
 			if (sm->pqc_sae_pmk_len == 0) {
 				os_memcpy(sm->pqc_sae_pmk, sm->pmk, sm->pmk_len);
 				sm->pqc_sae_pmk_len = sm->pmk_len;
 			}
 			os_memcpy(sm->pmk, sm->pqc_tpmk, sm->pqc_tpmk_len);
 			sm->pmk_len = sm->pqc_tpmk_len;
-			forced_memzero(sm->pqc_tpmk, sizeof(sm->pqc_tpmk));
-			sm->pqc_tpmk_len = 0;
 			/* Re-derive TPTK from Hybrid PMK so MIC verify uses correct KCK */
 			if (wpa_derive_ptk(sm, src_addr, k, &sm->tptk) == 0) {
 				sm->tptk_set = 1;
@@ -4674,6 +4682,12 @@ void wpa_sm_deinit(struct wpa_sm *sm)
 	wpabuf_clear_free(sm->dpp_z);
 #endif /* CONFIG_DPP2 */
 	os_memset(sm->last_kck, 0, sizeof(sm->last_kck));
+#ifdef CONFIG_PQC
+	bin_clear_free(sm->kyber_shared_secret, sm->kyber_shared_secret_len);
+	os_free(sm->kyber_ciphertext);
+	forced_memzero(sm->pqc_tpmk, sizeof(sm->pqc_tpmk));
+	forced_memzero(sm->pqc_sae_pmk, sizeof(sm->pqc_sae_pmk));
+#endif /* CONFIG_PQC */
 	os_free(sm);
 }
 

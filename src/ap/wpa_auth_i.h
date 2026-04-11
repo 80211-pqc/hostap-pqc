@@ -200,7 +200,7 @@ struct wpa_state_machine {
     size_t kyber_privkey_len;
     u8 *kyber_shared_secret;
     size_t kyber_shared_secret_len;
-    u8 pqc_tpmk[SHA384_MAC_LEN]; /* Pending Hybrid PMK (max 48 bytes), committed after MIC verify */
+    u8 pqc_tpmk[SHA384_MAC_LEN]; /* Pending Hybrid PMK, committed after MIC verify */
     size_t pqc_tpmk_len;
 #endif /* CONFIG_PQC */
 

@@ -1175,13 +1175,6 @@ pqc_cleanup:
 		os_memset(salt, 0, sizeof(salt));
 	}
 #endif /* CONFIG_PQC */
-	/* ========================================================== */
-
-	/* [Standard Extension Draft] NOTE: Hybrid PMK (in pqc_tpmk) is NOT committed
-	 * here. Msg 2/4 is sent with SAE PMK (mic_len=16) so the AP can parse it
-	 * correctly (AP also has SAE PMK at this stage, mic_len=16).
-	 * Hybrid PMK will be committed when processing Msg 3/4, which is built
-	 * by the AP after it derives the Hybrid PMK from the received ciphertext. */
 
 	/* Calculate PTK which will be stored as a temporary PTK until it has
 	 * been verified when processing message 3/4. */

@@ -679,11 +679,11 @@ static int hostapd_config_parse_key_mgmt(int line, const char *value)
 		else if (os_strcmp(start, "SAE") == 0)
 			val |= WPA_KEY_MGMT_SAE;
 #ifdef CONFIG_PQC
-    /* [Standard Draft] PQC Config Parsing Added */
-    else if (os_strcmp(start, "SAE-PQC-512") == 0)
-      val |= WPA_KEY_MGMT_SAE_PQC_512;
-    else if (os_strcmp(start, "SAE-PQC-768") == 0)
-      val |= WPA_KEY_MGMT_SAE_PQC_768;
+		/* [Standard Draft] PQC Config Parsing Added */
+		else if (os_strcmp(start, "SAE-PQC-512") == 0)
+			val |= WPA_KEY_MGMT_SAE_PQC_512;
+		else if (os_strcmp(start, "SAE-PQC-768") == 0)
+			val |= WPA_KEY_MGMT_SAE_PQC_768;
 #endif /* CONFIG_PQC */
 		else if (os_strcmp(start, "SAE-EXT-KEY") == 0)
 			val |= WPA_KEY_MGMT_SAE_EXT_KEY;

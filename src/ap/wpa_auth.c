@@ -2482,9 +2482,9 @@ static void wpa_send_eapol(struct wpa_authenticator *wpa_auth,
 	ctr = pairwise ? sm->TimeoutCtr : sm->GTimeoutCtr;
 
 #ifdef CONFIG_PQC
-/* [Standard Extension Draft] Kyber Key Injection Logic 
- * Condition: Msg 1 (Pairwise && ACK && !MIC && First Attempt)
- */
+	/* [Standard Extension Draft] Kyber Key Injection Logic
+	 * Condition: Msg 1 (Pairwise && ACK && !MIC && First Attempt)
+	 */
 	if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
 	    !(key_info & WPA_KEY_INFO_MIC) && (ctr == 1)) {
 

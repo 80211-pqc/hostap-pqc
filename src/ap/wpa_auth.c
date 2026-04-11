@@ -2002,6 +2002,9 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
     if (sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) {
         struct wpa_eapol_ie_parse kde;
         bool decaps_success = false;
+        u8 temp_prk[SHA384_MAC_LEN];
+        os_memset(temp_prk, 0, sizeof(temp_prk));
+        size_t temp_prk_len = 0;
         
         os_memset(&kde, 0, sizeof(kde));
         
@@ -2059,68 +2062,43 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
 						os_memcpy(ikm, sm->kyber_shared_secret, sm->kyber_shared_secret_len);
 						os_memcpy(ikm + sm->kyber_shared_secret_len, sm->PMK, sm->pmk_len);
 						
-						/* Step 2: Salt = SHA-256(Passphrase || SSID) */
-						u8 salt[SHA256_MAC_LEN];
-						const char *passphrase = NULL;
-						size_t pass_len = 0;
-						
-						if (wpa_auth->conf.ssid.wpa_passphrase) {
-							passphrase = wpa_auth->conf.ssid.wpa_passphrase;
-						} else if (wpa_auth->conf.wpa_passphrase) {
-							passphrase = wpa_auth->conf.wpa_passphrase;
-						}
-						
-						if (!passphrase) {
-							wpa_printf(MSG_ERROR, "PQC: Passphrase not available for Salt");
-							bin_clear_free(ikm, ikm_len);
-							decaps_success = false;
-							goto pqc_cleanup;
-						}
-						pass_len = os_strlen(passphrase);
-						
-						const u8 *ssid = wpa_auth->conf.ssid.ssid;
-						size_t ssid_len = wpa_auth->conf.ssid.ssid_len;
-						
-						size_t salt_input_len = pass_len + ssid_len;
-						u8 *salt_input = os_malloc(salt_input_len);
-						
-						if (!salt_input) {
-							wpa_printf(MSG_ERROR, "PQC: Salt input allocation failed");
-							bin_clear_free(ikm, ikm_len);
-							decaps_success = false;
-							goto pqc_cleanup;
-						}
-						
-						os_memcpy(salt_input, passphrase, pass_len);
-						os_memcpy(salt_input + pass_len, ssid, ssid_len);
-						
-						/* 해시로 Salt 추출 */
-						const u8 *addr[1] = { salt_input };
-						size_t len[1] = { salt_input_len };
-						sha256_vector(1, addr, len, salt);
-						bin_clear_free(salt_input, salt_input_len);
-						
-						/* Step 3: HKDF-Extract → PRK (새로운 마스터 키) */
-						u8 prk[SHA256_MAC_LEN];
-						hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, prk);
-						
-						/* Step 4: PMK 덮어쓰기 */
-						/* PRK는 32바이트(SHA256)이므로, pmk_len도 32로 명시적 강제 업데이트 */
-						sm->pmk_len = SHA256_MAC_LEN; 
-						os_memcpy(sm->PMK, prk, sm->pmk_len); 
-						
-						wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK successfully derived and installed!");
-						
-						/* 메모리 안전 소거 */
+						/* Step 2: Salt = SHA-XXX("WPA3-PQC-Hybrid" || ANonce || SNonce)
+						 * kyber768 → SHA-384, kyber512 → SHA-256 */
+						int use_768 = !!(sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768);
+						size_t prk_len = use_768 ? SHA384_MAC_LEN : SHA256_MAC_LEN;
+						u8 salt[SHA384_MAC_LEN];
+						const u8 *salt_parts[3];
+						size_t salt_lens[3];
+						salt_parts[0] = (const u8 *) PQC_HKDF_SALT_LABEL;
+						salt_lens[0] = PQC_HKDF_SALT_LABEL_LEN;
+						salt_parts[1] = sm->ANonce;
+						salt_lens[1] = WPA_NONCE_LEN;
+						salt_parts[2] = sm->SNonce;
+						salt_lens[2] = WPA_NONCE_LEN;
+						if (use_768)
+							sha384_vector(3, salt_parts, salt_lens, salt);
+						else
+							sha256_vector(3, salt_parts, salt_lens, salt);
+
+						/* Step 3: HKDF-Extract → PRK (직접 temp_prk에 저장) */
+						if (use_768)
+							hmac_sha384(salt, SHA384_MAC_LEN, ikm, ikm_len, temp_prk);
+						else
+							hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, temp_prk);
+						temp_prk_len = prk_len;
+
+						wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK derived and stored (AP) - will commit after cleanup");
+
+						/* Secure erase temporaries */
 						bin_clear_free(ikm, ikm_len);
-						os_memset(prk, 0, sizeof(prk));
 						os_memset(salt, 0, sizeof(salt));
 						/* ========================================================== */
 
 					} else {
                         wpa_printf(MSG_ERROR, "PQC: Decapsulation failed");
-                        os_free(sm->kyber_shared_secret);
+                        bin_clear_free(sm->kyber_shared_secret, sm->kyber_shared_secret_len);
                         sm->kyber_shared_secret = NULL;
+                        sm->kyber_shared_secret_len = 0;
                     }
                 } else {
                     wpa_printf(MSG_ERROR, 
@@ -2151,6 +2129,16 @@ void wpa_receive(struct wpa_authenticator *wpa_auth,
                             "PQC decapsulation failed - rejecting msg 2/4");
             goto out;
         }
+
+        /* 8. Store Hybrid PMK in pqc_tpmk - commit after Msg 2/4 MIC verification.
+         * Reason: sm->pmk_len must stay at 32 (SAE PMK) during PTKCALCNEGOTIATING
+         * so mic_len=16 matches what the STA sent in Msg 2/4.
+         * After MIC verification succeeds, PTKCALCNEGOTIATING will commit pqc_tpmk
+         * and re-derive PTK from the Hybrid PMK for Msg 3/4. */
+        os_memcpy(sm->pqc_tpmk, temp_prk, temp_prk_len);
+        sm->pqc_tpmk_len = temp_prk_len;
+        forced_memzero(temp_prk, sizeof(temp_prk));
+        wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK stored pending MIC verification (AP)");
     }
 #endif /* CONFIG_PQC */
   }
@@ -2494,11 +2482,11 @@ static void wpa_send_eapol(struct wpa_authenticator *wpa_auth,
 	ctr = pairwise ? sm->TimeoutCtr : sm->GTimeoutCtr;
 
 #ifdef CONFIG_PQC
-/* [Standard Extension Draft] Kyber Key Injection Logic 
- * Condition: Msg 1 (Pairwise && ACK && !MIC && First Attempt)
- */
-if (pairwise && (key_info & WPA_KEY_INFO_ACK) && 
-	    !(key_info & WPA_KEY_INFO_MIC) && (ctr == 0)) {
+	/* [Standard Extension Draft] Kyber Key Injection Logic
+	 * Condition: Msg 1 (Pairwise && ACK && !MIC && First Attempt)
+	 */
+	if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
+	    !(key_info & WPA_KEY_INFO_MIC) && (ctr == 1)) {
 
 		if (sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) {
 			
@@ -2510,10 +2498,10 @@ if (pairwise && (key_info & WPA_KEY_INFO_ACK) &&
 
 			if (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) {
 				kem_alg_name = OQS_KEM_alg_kyber_768;
-				type_suite = RSN_KEY_DATA_PQC_768_KEY; /* 0x20(32) */
+				type_suite = RSN_KEY_DATA_PQC_768_TYPE; /* 0x20(32) */
 			} else {
 				kem_alg_name = OQS_KEM_alg_kyber_512;
-				type_suite = RSN_KEY_DATA_PQC_512_KEY; /* 0x1F(31) */
+				type_suite = RSN_KEY_DATA_PQC_512_TYPE; /* 0x1F(31) */
 			}
 
 			/* 2. Init & Alloc */
@@ -4133,6 +4121,30 @@ SM_STATE(WPA_PTK, PTKCALCNEGOTIATING)
 				sm->pmk_len = pmk_len;
 			}
 			ok = 1;
+#ifdef CONFIG_PQC
+			/* Msg 2/4 MIC verified with SAE PMK (mic_len=16).
+			 * Now commit the Hybrid PMK and re-derive PTK so that
+			 * Msg 3/4 is built using the Hybrid PMK PTK (mic_len=24). */
+			if ((sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 |
+						 WPA_KEY_MGMT_SAE_PQC_768)) &&
+			    sm->pqc_tpmk_len > 0) {
+				os_memcpy(sm->PMK, sm->pqc_tpmk, sm->pqc_tpmk_len);
+				sm->pmk_len = sm->pqc_tpmk_len;
+				forced_memzero(sm->pqc_tpmk, sizeof(sm->pqc_tpmk));
+				sm->pqc_tpmk_len = 0;
+				/* Re-derive PTK from Hybrid PMK for Msg 3/4 */
+				if (wpa_derive_ptk(sm, sm->SNonce, sm->PMK,
+						   sm->pmk_len, &PTK,
+						   owe_ptk_workaround == 2,
+						   pmk_r0, pmk_r1, pmk_r0_name,
+						   &key_len, no_kdk) < 0) {
+					ok = 0;
+					break;
+				}
+				wpa_printf(MSG_DEBUG,
+					   "PQC: Hybrid PMK committed and PTK re-derived (AP, Msg 3/4)");
+			}
+#endif /* CONFIG_PQC */
 			break;
 		}
 

@@ -10,6 +10,8 @@
 #define WPA_I_H
 
 #include "utils/list.h"
+#include "crypto/sha256.h"
+#include "crypto/sha384.h"
 
 struct wpa_tdls_peer;
 struct wpa_eapol_key;
@@ -239,6 +241,10 @@ struct wpa_sm {
 	size_t kyber_ciphertext_len;
 	u8 *kyber_shared_secret;
 	size_t kyber_shared_secret_len;
+	u8 pqc_tpmk[SHA384_MAC_LEN]; /* Temporary Hybrid PMK — committed before PTK derivation */
+	size_t pqc_tpmk_len;
+	u8 pqc_sae_pmk[PMK_LEN_MAX]; /* SAE PMK backup — restored on MIC failure */
+	size_t pqc_sae_pmk_len;
 #endif /* CONFIG_PQC */
 
 	struct wpa_sm_mlo mlo;

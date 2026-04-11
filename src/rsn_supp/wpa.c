@@ -32,6 +32,9 @@
 #include "pmksa_cache.h"
 #include "wpa_i.h"
 #include "wpa_ie.h"
+#ifdef CONFIG_PQC
+#include <oqs/oqs.h>
+#endif /* CONFIG_PQC */
 
 
 static const u8 null_rsc[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
@@ -1000,10 +1003,10 @@ static void wpa_supplicant_process_1_of_4(struct wpa_sm *sm,
 	}
   /* [Standard Extension Draft] Kyber Encapsulation */
 #ifdef CONFIG_PQC
-	size_t expected_pubkey_len = (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ? 
+	size_t expected_pubkey_len = (sm->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ?
 	                             1184 : 800;
-	
-	if ((sm->wpa_key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) && 
+
+	if ((sm->key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) &&
 	    ie.kyber_pubkey && ie.kyber_pubkey_len == expected_pubkey_len) {
 		
 		wpa_printf(MSG_DEBUG, "PQC: Starting Kyber Encapsulation (len=%zu)...",
@@ -1021,7 +1024,7 @@ static void wpa_supplicant_process_1_of_4(struct wpa_sm *sm,
 			sm->kyber_shared_secret_len = 0;
 		}
 		
-		const char *kem_alg_name = (sm->wpa_key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ? 
+		const char *kem_alg_name = (sm->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ?
 		                           OQS_KEM_alg_kyber_768 : OQS_KEM_alg_kyber_512;
 		
 		OQS_KEM *kem = OQS_KEM_new(kem_alg_name);
@@ -1050,8 +1053,9 @@ static void wpa_supplicant_process_1_of_4(struct wpa_sm *sm,
 				sm->kyber_ciphertext = NULL;
 			}
 			if (sm->kyber_shared_secret) {
-				os_free(sm->kyber_shared_secret);
+				bin_clear_free(sm->kyber_shared_secret, sm->kyber_shared_secret_len);
 				sm->kyber_shared_secret = NULL;
+				sm->kyber_shared_secret_len = 0;
 			}
 			OQS_KEM_free(kem);
 			goto pqc_cleanup;
@@ -1117,6 +1121,60 @@ pqc_cleanup:
 		wpa_hexdump(MSG_DEBUG, "WPA: Renewed SNonce",
 			    sm->snonce, WPA_NONCE_LEN);
 	}
+
+	/* ========================================================== */
+	/* [Standard Extension Draft] Hybrid PMK Derivation (HKDF)    */
+	/* ========================================================== */
+#ifdef CONFIG_PQC
+	if ((sm->key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) &&
+	    sm->kyber_shared_secret && sm->kyber_shared_secret_len > 0) {
+
+		wpa_printf(MSG_DEBUG, "PQC: Starting Hybrid PMK derivation (STA)...");
+
+		/* Step 1: IKM = ss_Kyber || PMK_SAE */
+		size_t ikm_len = sm->kyber_shared_secret_len + sm->pmk_len;
+		u8 *ikm = os_malloc(ikm_len);
+
+		if (!ikm) {
+			wpa_printf(MSG_ERROR, "PQC: IKM allocation failed");
+			goto failed;
+		}
+
+		os_memcpy(ikm, sm->kyber_shared_secret, sm->kyber_shared_secret_len);
+		os_memcpy(ikm + sm->kyber_shared_secret_len, sm->pmk, sm->pmk_len);
+
+		/* Step 2: Salt = SHA-XXX("WPA3-PQC-Hybrid" || ANonce || SNonce)
+		 * kyber768 → SHA-384, kyber512 → SHA-256 */
+		int use_768 = !!(sm->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768);
+		size_t prk_len = use_768 ? SHA384_MAC_LEN : SHA256_MAC_LEN;
+		u8 salt[SHA384_MAC_LEN];
+		const u8 *salt_parts[3];
+		size_t salt_lens[3];
+		salt_parts[0] = (const u8 *) PQC_HKDF_SALT_LABEL;
+		salt_lens[0] = PQC_HKDF_SALT_LABEL_LEN;
+		salt_parts[1] = key->key_nonce; /* ANonce from Msg 1/4 (sm->anonce not set yet) */
+		salt_lens[1] = WPA_NONCE_LEN;
+		salt_parts[2] = sm->snonce;
+		salt_lens[2] = WPA_NONCE_LEN;
+		if (use_768)
+			sha384_vector(3, salt_parts, salt_lens, salt);
+		else
+			sha256_vector(3, salt_parts, salt_lens, salt);
+
+		/* Step 3: HKDF-Extract → PRK (직접 pqc_tpmk에 저장) */
+		if (use_768)
+			hmac_sha384(salt, SHA384_MAC_LEN, ikm, ikm_len, sm->pqc_tpmk);
+		else
+			hmac_sha256(salt, SHA256_MAC_LEN, ikm, ikm_len, sm->pqc_tpmk);
+		sm->pqc_tpmk_len = prk_len;
+
+		wpa_printf(MSG_DEBUG, "PQC: Hybrid PMK derived and stored (STA) - will commit after MIC");
+
+		/* Secure erase temporaries */
+		bin_clear_free(ikm, ikm_len);
+		os_memset(salt, 0, sizeof(salt));
+	}
+#endif /* CONFIG_PQC */
 
 	/* Calculate PTK which will be stored as a temporary PTK until it has
 	 * been verified when processing message 3/4. */
@@ -1245,8 +1303,8 @@ pqc_cleanup:
 		size_t left = sm->kyber_ciphertext_len;
 		u8 *ct_pos = sm->kyber_ciphertext;
 		u8 frag_seq = 0;
-		u8 type_suite = (sm->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ? 
-		                 RSN_KEY_DATA_PQC_768_KEY : RSN_KEY_DATA_PQC_512_KEY;
+		u8 type_suite = (sm->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) ?
+		                 RSN_KEY_DATA_PQC_768_TYPE : RSN_KEY_DATA_PQC_512_TYPE;
 
 		wpa_printf(MSG_DEBUG, "PQC: Fragmenting Ciphertext for Msg 2...");
 
@@ -3585,6 +3643,14 @@ static void wpa_sm_tptk_to_ptk(struct wpa_sm *sm)
 	os_memcpy(&sm->ptk, &sm->tptk, sizeof(sm->ptk));
 	os_memset(&sm->tptk, 0, sizeof(sm->tptk));
 
+#ifdef CONFIG_PQC
+	/* MIC verified — SAE PMK backup no longer needed */
+	if (sm->pqc_sae_pmk_len > 0) {
+		forced_memzero(sm->pqc_sae_pmk, sizeof(sm->pqc_sae_pmk));
+		sm->pqc_sae_pmk_len = 0;
+	}
+#endif /* CONFIG_PQC */
+
 	if (wpa_sm_pmf_enabled(sm)) {
 		os_memcpy(sm->last_kck, sm->ptk.kck, sm->ptk.kck_len);
 		sm->last_kck_len = sm->ptk.kck_len;
@@ -4010,6 +4076,44 @@ int wpa_sm_rx_eapol(struct wpa_sm *sm, const u8 *src_addr,
 	sm->ft_completed = 0;
 #endif /* CONFIG_IEEE80211R */
 
+#ifdef CONFIG_PQC
+	/* [Standard Extension Draft] For SAE-PQC: if we have a pending Hybrid PMK
+	 * (pqc_tpmk_len > 0) and the incoming frame is Msg 3/4 (pairwise + ACK + MIC),
+	 * commit Hybrid PMK NOW so mic_len is computed correctly (24 vs 16).
+	 * The AP built Msg 3/4 with mic_len=24 (Hybrid PMK), so we must match. */
+	if ((sm->key_mgmt & (WPA_KEY_MGMT_SAE_PQC_512 | WPA_KEY_MGMT_SAE_PQC_768)) &&
+	    sm->pqc_tpmk_len > 0 &&
+	    len >= sizeof(struct ieee802_1x_hdr) + sizeof(struct wpa_eapol_key)) {
+		const struct ieee802_1x_hdr *h = (const struct ieee802_1x_hdr *) buf;
+		const struct wpa_eapol_key *k = (const struct wpa_eapol_key *) (h + 1);
+		u16 kinfo = WPA_GET_BE16(k->key_info);
+		/* Msg 3/4: KEY_TYPE(pairwise) + ACK + MIC + ANonce must match Msg 1/4 */
+		if ((kinfo & WPA_KEY_INFO_KEY_TYPE) &&
+		    (kinfo & WPA_KEY_INFO_ACK) &&
+		    (kinfo & WPA_KEY_INFO_MIC) &&
+		    os_memcmp(k->key_nonce, sm->anonce, WPA_NONCE_LEN) == 0) {
+			/* Commit Hybrid PMK */
+			if (sm->pqc_sae_pmk_len == 0) {
+				os_memcpy(sm->pqc_sae_pmk, sm->pmk, sm->pmk_len);
+				sm->pqc_sae_pmk_len = sm->pmk_len;
+			}
+			os_memcpy(sm->pmk, sm->pqc_tpmk, sm->pqc_tpmk_len);
+			sm->pmk_len = sm->pqc_tpmk_len;
+			forced_memzero(sm->pqc_tpmk, sizeof(sm->pqc_tpmk));
+			sm->pqc_tpmk_len = 0;
+			/* Re-derive TPTK from Hybrid PMK so MIC verify uses correct KCK */
+			if (wpa_derive_ptk(sm, src_addr, k, &sm->tptk) == 0) {
+				sm->tptk_set = 1;
+				wpa_printf(MSG_DEBUG,
+					   "PQC: Hybrid PMK committed and TPTK re-derived for Msg 3/4 (STA)");
+			} else {
+				wpa_printf(MSG_ERROR,
+					   "PQC: Failed to re-derive TPTK with Hybrid PMK");
+			}
+		}
+	}
+#endif /* CONFIG_PQC */
+
 	pmk_len = sm->pmk_len;
 	if (!pmk_len && sm->cur_pmksa)
 		pmk_len = sm->cur_pmksa->pmk_len;
@@ -4281,6 +4385,16 @@ int wpa_sm_rx_eapol(struct wpa_sm *sm, const u8 *src_addr,
 	ret = 1;
 
 out:
+#ifdef CONFIG_PQC
+	if (sm->pqc_sae_pmk_len > 0 && ret != 1) {
+		/* MIC verification failed — restore original SAE PMK */
+		os_memcpy(sm->pmk, sm->pqc_sae_pmk, sm->pqc_sae_pmk_len);
+		sm->pmk_len = sm->pqc_sae_pmk_len;
+		forced_memzero(sm->pqc_sae_pmk, sizeof(sm->pqc_sae_pmk));
+		sm->pqc_sae_pmk_len = 0;
+		wpa_printf(MSG_DEBUG, "PQC: SAE PMK restored after MIC failure");
+	}
+#endif /* CONFIG_PQC */
 	bin_clear_free(tmp, data_len);
 	return ret;
 }

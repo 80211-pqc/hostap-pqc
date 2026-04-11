@@ -1045,6 +1045,12 @@ wpa_validate_wpa_ie(struct wpa_authenticator *wpa_auth,
 		sm->wpa_key_mgmt = WPA_KEY_MGMT_FT_SAE;
 	else if (key_mgmt & WPA_KEY_MGMT_FT_SAE_EXT_KEY)
 		sm->wpa_key_mgmt = WPA_KEY_MGMT_FT_SAE_EXT_KEY;
+#ifdef CONFIG_PQC
+	else if (key_mgmt & WPA_KEY_MGMT_SAE_PQC_768)
+		sm->wpa_key_mgmt = WPA_KEY_MGMT_SAE_PQC_768;
+	else if (key_mgmt & WPA_KEY_MGMT_SAE_PQC_512)
+		sm->wpa_key_mgmt = WPA_KEY_MGMT_SAE_PQC_512;
+#endif /* CONFIG_PQC */
 #endif /* CONFIG_SAE */
 	else if (key_mgmt & WPA_KEY_MGMT_IEEE8021X)
 		sm->wpa_key_mgmt = WPA_KEY_MGMT_IEEE8021X;

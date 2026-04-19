@@ -93,6 +93,17 @@ WPA_CIPHER_BIP_CMAC_256)
 #define RSN_AUTH_KEY_MGMT_SAE_EXT_KEY RSN_SELECTOR(0x00, 0x0f, 0xac, 24)
 #define RSN_AUTH_KEY_MGMT_FT_SAE_EXT_KEY RSN_SELECTOR(0x00, 0x0f, 0xac, 25)
 
+/*
+ * [Standard Extension Draft]
+ * The following AKM suite selectors are proposed for SAE with Post-Quantum Cryptography.
+ *
+ * NOTE: Values 31 and 32 are temporarily assigned for this implementation to avoid
+ * collision with upcoming IEEE 802.11 drafts (allocating 26+).
+ * These values should be updated upon official IEEE assignment.
+ */
+#define RSN_AUTH_KEY_MGMT_SAE_PQC_512 RSN_SELECTOR(0x00, 0x0f, 0xac, 31)
+#define RSN_AUTH_KEY_MGMT_SAE_PQC_768 RSN_SELECTOR(0x00, 0x0f, 0xac, 32)
+
 #define RSN_AUTH_KEY_MGMT_CCKM RSN_SELECTOR(0x00, 0x40, 0x96, 0x00)
 #define RSN_AUTH_KEY_MGMT_DPP RSN_SELECTOR(0x50, 0x6f, 0x9a, 0x02)
 
@@ -248,6 +259,46 @@ struct wpa_eapol_key {
 #define WPA_PASN_KCK_LEN 32
 #define WPA_PASN_MIC_MAX_LEN 24
 #define WPA_LTF_KEYSEED_MAX_LEN 48
+
+/* [Standard Extension Draft] Kyber KDE Constants */
+#ifdef CONFIG_PQC
+
+/* Subtypes */
+#define PQC_KDE_SUBTYPE_PUBKEY      0x01
+#define PQC_KDE_SUBTYPE_CIPHERTEXT  0x02
+
+/* Control Field Bitmasks */
+#define PQC_CTRL_MORE_FRAGMENTS     0x01  /* Bit 0: 1=More, 0=Last */
+#define PQC_CTRL_SEQ_MASK           0x0E  /* Bit 1-3: Sequence Number */
+#define PQC_CTRL_SEQ_SHIFT          1
+
+/* Macros for extracting values */
+#define PQC_GET_SEQ(ctrl)   (((ctrl) & PQC_CTRL_SEQ_MASK) >> PQC_CTRL_SEQ_SHIFT)
+#define PQC_HAS_MORE(ctrl)  ((ctrl) & PQC_CTRL_MORE_FRAGMENTS)
+
+/* Max Buffer Sizes (Safety Margins) */
+#define PQC_PUBKEY_MAX_SIZE      1200
+#define PQC_CIPHERTEXT_MAX_SIZE  1200 
+
+
+/* Fragmentation Constants */
+/* Chunk Size Optimization: 255(Max) - 6(Header) - 4(Safety) = 245 */
+#define PQC_KDE_MAX_FRAGMENT 245
+/* Header Overhead: Max 6 fragments * 8 bytes = 48 -> Round to 64 */
+#define PQC_KDE_HEADER_OVERHEAD 64
+
+/* [Standard Extension Draft] PQC KDE type selectors */
+/* For KDE parsing (u32 — compared with RSN_SELECTOR_GET() in wpa_common.c) */
+#define RSN_KEY_DATA_PQC_512_KEY RSN_SELECTOR(0x00, 0x0f, 0xac, 31)
+#define RSN_KEY_DATA_PQC_768_KEY RSN_SELECTOR(0x00, 0x0f, 0xac, 32)
+/* For KDE construction (u8 — one byte written via '*pos++ = type_suite') */
+#define RSN_KEY_DATA_PQC_512_TYPE 31
+#define RSN_KEY_DATA_PQC_768_TYPE 32
+/* Salt label for Hybrid PMK derivation */
+#define PQC_HKDF_SALT_LABEL     "WPA3-PQC-Hybrid"
+#define PQC_HKDF_SALT_LABEL_LEN (sizeof(PQC_HKDF_SALT_LABEL) - 1)
+#endif /* CONFIG_PQC */
+
 
 /**
  * struct wpa_ptk - WPA Pairwise Transient Key
@@ -737,6 +788,16 @@ struct wpa_eapol_ie_parse {
 	size_t mlo_link_len[MAX_NUM_MLD_LINKS];
 	const u8 *rsn_override_link[MAX_NUM_MLD_LINKS];
 	size_t rsn_override_link_len[MAX_NUM_MLD_LINKS];
+/* [Standard Extension] PQC Reassembly Buffers */
+#ifdef CONFIG_PQC
+    u8 *kyber_pubkey;
+    size_t kyber_pubkey_len;
+    u8 kyber_pk_next_seq; /* 순서 방어용 필수 변수 */
+    
+    u8 *kyber_ciphertext;
+    size_t kyber_ciphertext_len;
+    u8 kyber_ct_next_seq; /* 순서 방어용 필수 변수 */
+#endif
 };
 
 int wpa_parse_kde_ies(const u8 *buf, size_t len, struct wpa_eapol_ie_parse *ie);

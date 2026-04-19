@@ -52,8 +52,10 @@
 #define WPA_KEY_MGMT_SAE_EXT_KEY BIT(26)
 #define WPA_KEY_MGMT_FT_SAE_EXT_KEY BIT(27)
 #define WPA_KEY_MGMT_IEEE8021X_SHA384 BIT(28)
-
-
+#ifdef CONFIG_PQC
+#define WPA_KEY_MGMT_SAE_PQC_512 BIT(29)
+#define WPA_KEY_MGMT_SAE_PQC_768 BIT(30)
+#endif /* CONFIG_PQC */
 #define WPA_KEY_MGMT_FT (WPA_KEY_MGMT_FT_PSK | \
 			 WPA_KEY_MGMT_FT_IEEE8021X | \
 			 WPA_KEY_MGMT_FT_IEEE8021X_SHA384 | \
@@ -93,7 +95,12 @@ static inline int wpa_key_mgmt_wpa_psk(int akm)
 			 WPA_KEY_MGMT_SAE |
 			 WPA_KEY_MGMT_SAE_EXT_KEY |
 			 WPA_KEY_MGMT_FT_SAE |
-			 WPA_KEY_MGMT_FT_SAE_EXT_KEY));
+			 WPA_KEY_MGMT_FT_SAE_EXT_KEY
+#ifdef CONFIG_PQC
+			 | WPA_KEY_MGMT_SAE_PQC_512
+			 | WPA_KEY_MGMT_SAE_PQC_768
+#endif /* CONFIG_PQC */
+			 ));
 }
 
 static inline int wpa_key_mgmt_ft(int akm)
@@ -118,7 +125,12 @@ static inline int wpa_key_mgmt_sae(int akm)
 	return !!(akm & (WPA_KEY_MGMT_SAE |
 			 WPA_KEY_MGMT_SAE_EXT_KEY |
 			 WPA_KEY_MGMT_FT_SAE |
-			 WPA_KEY_MGMT_FT_SAE_EXT_KEY));
+			 WPA_KEY_MGMT_FT_SAE_EXT_KEY
+#ifdef CONFIG_PQC
+			 | WPA_KEY_MGMT_SAE_PQC_512
+			 | WPA_KEY_MGMT_SAE_PQC_768
+#endif /* CONFIG_PQC */
+			 ));
 }
 
 static inline int wpa_key_mgmt_sae_ext_key(int akm)
@@ -133,7 +145,12 @@ static inline int wpa_key_mgmt_only_sae(int akm)
 		!(akm & ~(WPA_KEY_MGMT_SAE |
 			  WPA_KEY_MGMT_SAE_EXT_KEY |
 			  WPA_KEY_MGMT_FT_SAE |
-			  WPA_KEY_MGMT_FT_SAE_EXT_KEY));
+			  WPA_KEY_MGMT_FT_SAE_EXT_KEY
+#ifdef CONFIG_PQC
+			  | WPA_KEY_MGMT_SAE_PQC_512
+			  | WPA_KEY_MGMT_SAE_PQC_768
+#endif /* CONFIG_PQC */
+			  ));
 }
 
 static inline int wpa_key_mgmt_fils(int akm)

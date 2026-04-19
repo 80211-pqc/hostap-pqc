@@ -6,6 +6,9 @@
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
  */
+#ifdef CONFIG_PQC
+#include <oqs/oqs.h> //liboqs header
+#endif /* CONFIG_PQC */
 
 #include "utils/includes.h"
 #ifndef CONFIG_NATIVE_WINDOWS
@@ -980,6 +983,41 @@ int main(int argc, char *argv[])
 		wpa_printf(MSG_ERROR, "Failed to initialize global context");
 		return -1;
 	}
+
+  /* PQC Test Code Start */
+  #ifdef CONFIG_PQC
+    /* Test liboqs Kyber768 (ML-KEM-768) support */
+    wpa_printf(MSG_INFO, "========================================================");
+    wpa_printf(MSG_INFO, "[PQC Test] Starting liboqs Kyber768 (ML-KEM-768) Check...");
+
+    /* 1. Check if Kyber768 algorithm is available in liboqs */
+    if (OQS_KEM_alg_is_enabled(OQS_KEM_alg_kyber_768)) {
+        wpa_printf(MSG_INFO, "[PQC Test] SUCCESS: Kyber768 algorithm is enabled in liboqs");
+        
+        /* 2. Create a KEM object for Kyber768 */
+        OQS_KEM *kem = OQS_KEM_new(OQS_KEM_alg_kyber_768);
+        
+        if (kem == NULL) {
+            wpa_printf(MSG_ERROR, "[PQC Test] FAILED: Could not create Kyber768 KEM object");
+        } else {
+            wpa_printf(MSG_INFO, "[PQC Test] SUCCESS: Kyber768 KEM object created successfully");
+            wpa_printf(MSG_INFO, "[PQC Test] Kyber768 details:");
+            wpa_printf(MSG_INFO, "[PQC Test]   - Algorithm name: %s", kem->method_name);
+            wpa_printf(MSG_INFO, "[PQC Test]   - Public key length: %zu bytes", kem->length_public_key);
+            wpa_printf(MSG_INFO, "[PQC Test]   - Secret key length: %zu bytes", kem->length_secret_key);
+            wpa_printf(MSG_INFO, "[PQC Test]   - Ciphertext length: %zu bytes", kem->length_ciphertext);
+            wpa_printf(MSG_INFO, "[PQC Test]   - Shared secret length: %zu bytes", kem->length_shared_secret);
+            
+            /* 3. Clean up */
+            OQS_KEM_free(kem);
+        }
+    } else {
+        wpa_printf(MSG_ERROR, "[PQC Test] FAILED: Kyber768 algorithm is NOT enabled in liboqs");
+    }
+    
+    wpa_printf(MSG_INFO, "========================================================");
+  #endif /* CONFIG_PQC */
+  /* PQC Test Code End */
 
 	eloop_register_timeout(HOSTAPD_CLEANUP_INTERVAL, 0,
 			       hostapd_periodic, &interfaces, NULL);

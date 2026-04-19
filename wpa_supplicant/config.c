@@ -820,7 +820,19 @@ static int wpa_config_parse_key_mgmt(const struct parse_data *data,
 			val |= WPA_KEY_MGMT_FT_SAE;
 		else if (os_strcmp(start, "FT-SAE-EXT-KEY") == 0)
 			val |= WPA_KEY_MGMT_FT_SAE_EXT_KEY;
+    /* 
+     * [Standard Extension Draft] 
+     * SAE with Post-Quantum Cryptography (Kyber)
+     * Configuration Parsing Logic (String to Bitmap)
+     */
+#ifdef CONFIG_PQC
+    else if (os_strcmp(start, "SAE-PQC-512") == 0)
+      val |= WPA_KEY_MGMT_SAE_PQC_512;
+    else if (os_strcmp(start, "SAE-PQC-768") == 0)
+      val |= WPA_KEY_MGMT_SAE_PQC_768;
+#endif /* CONFIG_PQC */
 #endif /* CONFIG_SAE */
+
 #ifdef CONFIG_SUITEB
 		else if (os_strcmp(start, "WPA-EAP-SUITE-B") == 0)
 			val |= WPA_KEY_MGMT_IEEE8021X_SUITE_B;
@@ -1055,6 +1067,28 @@ static char * wpa_config_write_key_mgmt(const struct parse_data *data,
 		}
 		pos += ret;
 	}
+/* [Standard Extension Draft] PQC Config Writing (Bit -> Text) */
+#ifdef CONFIG_PQC
+  if (ssid->key_mgmt & WPA_KEY_MGMT_SAE_PQC_512) {
+    ret = os_snprintf(pos, end - pos, "%sSAE-PQC-512",
+          pos == buf ? "" : " ");
+    if (os_snprintf_error(end - pos, ret)) {
+      end[-1] = '\0';
+      return buf;
+    }
+    pos += ret;
+  }
+
+  if (ssid->key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) {
+    ret = os_snprintf(pos, end - pos, "%sSAE-PQC-768",
+          pos == buf ? "" : " ");
+    if (os_snprintf_error(end - pos, ret)) {
+      end[-1] = '\0';
+      return buf;
+    }
+    pos += ret;
+  }
+#endif /* CONFIG_PQC */
 #endif /* CONFIG_SAE */
 
 #ifdef CONFIG_SUITEB

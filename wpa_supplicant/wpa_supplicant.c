@@ -2119,6 +2119,14 @@ int wpa_supplicant_set_suites(struct wpa_supplicant *wpa_s,
 	} else if (sel & WPA_KEY_MGMT_SAE) {
 		wpa_s->key_mgmt = WPA_KEY_MGMT_SAE;
 		wpa_dbg(wpa_s, MSG_DEBUG, "RSN: using KEY_MGMT SAE");
+#ifdef CONFIG_PQC
+	} else if (sel & WPA_KEY_MGMT_SAE_PQC_768) {
+		wpa_s->key_mgmt = WPA_KEY_MGMT_SAE_PQC_768;
+		wpa_dbg(wpa_s, MSG_DEBUG, "RSN: using KEY_MGMT SAE-PQC-768");
+	} else if (sel & WPA_KEY_MGMT_SAE_PQC_512) {
+		wpa_s->key_mgmt = WPA_KEY_MGMT_SAE_PQC_512;
+		wpa_dbg(wpa_s, MSG_DEBUG, "RSN: using KEY_MGMT SAE-PQC-512");
+#endif /* CONFIG_PQC */
 #endif /* CONFIG_SAE */
 #ifdef CONFIG_IEEE80211R
 	} else if (sel & WPA_KEY_MGMT_FT_PSK) {

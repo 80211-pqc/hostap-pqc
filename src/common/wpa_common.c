@@ -39,6 +39,11 @@ static unsigned int wpa_kck_len(int akmp, size_t pmk_len)
 	case WPA_KEY_MGMT_OWE:
 		return pmk_len / 2;
 	case WPA_KEY_MGMT_SAE_EXT_KEY:
+/* [Standard Extension Draft] PQC uses variable length keys based on PMK */
+#ifdef CONFIG_PQC
+  case WPA_KEY_MGMT_SAE_PQC_512:
+  case WPA_KEY_MGMT_SAE_PQC_768:
+#endif /* CONFIG_PQC */
 	case WPA_KEY_MGMT_FT_SAE_EXT_KEY:
 		return pmk_len / 2;
 	default:
@@ -80,6 +85,11 @@ static unsigned int wpa_kek_len(int akmp, size_t pmk_len)
 		return pmk_len <= 32 ? 16 : 32;
 	case WPA_KEY_MGMT_SAE_EXT_KEY:
 	case WPA_KEY_MGMT_FT_SAE_EXT_KEY:
+/* [Standard Extension Draft] PQC uses variable length keys based on PMK */
+#ifdef CONFIG_PQC
+  case WPA_KEY_MGMT_SAE_PQC_512:
+  case WPA_KEY_MGMT_SAE_PQC_768:
+#endif /* CONFIG_PQC */
 		return pmk_len <= 32 ? 16 : 32;
 	default:
 		return 16;
@@ -120,6 +130,11 @@ unsigned int wpa_mic_len(int akmp, size_t pmk_len)
 		return pmk_len / 2;
 	case WPA_KEY_MGMT_SAE_EXT_KEY:
 	case WPA_KEY_MGMT_FT_SAE_EXT_KEY:
+/* [Standard Extension Draft] PQC uses variable length keys based on PMK */
+#ifdef CONFIG_PQC
+  case WPA_KEY_MGMT_SAE_PQC_512:
+  case WPA_KEY_MGMT_SAE_PQC_768:
+#endif /* CONFIG_PQC */
 		return pmk_len / 2;
 	default:
 		return 16;
@@ -192,6 +207,17 @@ int rsn_key_mgmt_to_wpa_akm(u32 akm_suite)
 		return WPA_KEY_MGMT_FT_SAE;
 	case RSN_AUTH_KEY_MGMT_FT_SAE_EXT_KEY:
 		return WPA_KEY_MGMT_FT_SAE_EXT_KEY;
+/* 
+ * [Standard Extension Draft] 
+ * SAE with Post-Quantum Cryptography (Kyber)
+ * Mapping Wire Format (RSN Selector) to Internal Bitmap
+ */
+#ifdef CONFIG_PQC
+  case RSN_AUTH_KEY_MGMT_SAE_PQC_512:
+    return WPA_KEY_MGMT_SAE_PQC_512;
+  case RSN_AUTH_KEY_MGMT_SAE_PQC_768:
+    return WPA_KEY_MGMT_SAE_PQC_768;
+#endif /* CONFIG_PQC */
 #endif /* CONFIG_SAE */
 	case RSN_AUTH_KEY_MGMT_802_1X_SUITE_B:
 		return WPA_KEY_MGMT_IEEE8021X_SUITE_B;
@@ -234,6 +260,11 @@ int wpa_use_akm_defined(int akmp)
 		akmp == WPA_KEY_MGMT_DPP ||
 		akmp == WPA_KEY_MGMT_FT_IEEE8021X_SHA384 ||
 		akmp == WPA_KEY_MGMT_IEEE8021X_SHA384 ||
+/* [Standard Extension Draft] PQC uses AKM defined descriptors */
+#ifdef CONFIG_PQC
+    akmp == WPA_KEY_MGMT_SAE_PQC_512 ||
+    akmp == WPA_KEY_MGMT_SAE_PQC_768 ||
+#endif /* CONFIG_PQC */
 		wpa_key_mgmt_sae(akmp) ||
 		wpa_key_mgmt_suite_b(akmp) ||
 		wpa_key_mgmt_fils(akmp);
@@ -273,6 +304,11 @@ int wpa_use_aes_key_wrap(int akmp)
 		akmp == WPA_KEY_MGMT_IEEE8021X_SHA384 ||
 		wpa_key_mgmt_ft(akmp) ||
 		wpa_key_mgmt_sha256(akmp) ||
+/* [Standard Extension Draft] PQC requires AES Key Wrap for high security */
+#ifdef CONFIG_PQC
+    akmp == WPA_KEY_MGMT_SAE_PQC_512 ||
+    akmp == WPA_KEY_MGMT_SAE_PQC_768 ||
+#endif /* CONFIG_PQC */
 		wpa_key_mgmt_sae(akmp) ||
 		wpa_key_mgmt_suite_b(akmp);
 }
@@ -334,8 +370,13 @@ int wpa_eapol_key_mic(const u8 *key, size_t key_len, int akmp, int ver,
 			return omac1_aes_128(key, buf, len, mic);
 		case WPA_KEY_MGMT_SAE_EXT_KEY:
 		case WPA_KEY_MGMT_FT_SAE_EXT_KEY:
+/* [Standard Extension Draft] PQC uses HMAC-SHA based on key length */
+#ifdef CONFIG_PQC
+    case WPA_KEY_MGMT_SAE_PQC_512:
+    case WPA_KEY_MGMT_SAE_PQC_768:
+#endif /* CONFIG_PQC */
 			wpa_printf(MSG_DEBUG,
-				   "WPA: EAPOL-Key MIC using HMAC-SHA%u (AKM-defined - SAE-EXT-KEY)",
+				   "WPA: EAPOL-Key MIC using HMAC-SHA%u (AKM-defined - SAE-EXT/PQC)",
 				   (unsigned int) key_len * 8 * 2);
 			if (key_len == 128 / 8) {
 				if (hmac_sha256(key, key_len, buf, len, hash))
@@ -606,7 +647,15 @@ int wpa_pmk_to_ptk(const u8 *pmk, size_t pmk_len, const char *label,
 		return -1;
 #endif /* CONFIG_DPP */
 #ifdef CONFIG_SAE
-	} else if (wpa_key_mgmt_sae_ext_key(akmp)) {
+	} else if (wpa_key_mgmt_sae_ext_key(akmp)
+/* [Standard Extension Draft] Treat PQC same as SAE_EXT_KEY for KDF selection */
+#ifdef CONFIG_PQC
+        || akmp == WPA_KEY_MGMT_SAE_PQC_512
+        || akmp == WPA_KEY_MGMT_SAE_PQC_768
+#endif /* CONFIG_PQC */
+
+) {
+
 		if (pmk_len == 32) {
 			wpa_printf(MSG_DEBUG,
 				   "SAE: PTK derivation using PRF(SHA256)");
@@ -2799,6 +2848,19 @@ const char * wpa_key_mgmt_txt(int key_mgmt, int proto)
 		return "FT-SAE";
 	case WPA_KEY_MGMT_FT_SAE_EXT_KEY:
 		return "FT-SAE-EXT-KEY";
+  
+  /* 
+   * [Standard Extension Draft]
+   * SAE with Post-Quantum Cryptography (Kyber)
+   * Debug Text Definition
+   */
+  #ifdef CONFIG_PQC
+  case WPA_KEY_MGMT_SAE_PQC_512:
+    return "SAE-PQC-512";
+  case WPA_KEY_MGMT_SAE_PQC_768:
+    return "SAE-PQC-768";
+  #endif /* CONFIG_PQC */
+
 	case WPA_KEY_MGMT_IEEE8021X_SUITE_B:
 		return "WPA2-EAP-SUITE-B";
 	case WPA_KEY_MGMT_IEEE8021X_SUITE_B_192:
@@ -2865,6 +2927,18 @@ u32 wpa_akm_to_suite(int akm)
 		return RSN_AUTH_KEY_MGMT_FT_SAE;
 	if (akm & WPA_KEY_MGMT_FT_SAE_EXT_KEY)
 		return RSN_AUTH_KEY_MGMT_FT_SAE_EXT_KEY;
+    
+  /*
+   * [Standard Extension Draft]
+   * SAE with Post-Quantum Cryptography (Kyber)
+   * Mapping Internal Bitmap to Wire Format (RSN Selector)
+   */
+  #ifdef CONFIG_PQC
+  if (akm & WPA_KEY_MGMT_SAE_PQC_512)
+    return RSN_AUTH_KEY_MGMT_SAE_PQC_512;
+  if (akm & WPA_KEY_MGMT_SAE_PQC_768)
+    return RSN_AUTH_KEY_MGMT_SAE_PQC_768;
+  #endif /* CONFIG_PQC */
 	if (akm & WPA_KEY_MGMT_OWE)
 		return RSN_AUTH_KEY_MGMT_OWE;
 	if (akm & WPA_KEY_MGMT_DPP)
@@ -3684,7 +3758,91 @@ static int wpa_parse_generic(const u8 *pos, struct wpa_eapol_ie_parse *ie)
 			    ie->rsn_selection, ie->rsn_selection_len);
 		return 0;
 	}
-
+/* [Standard Extension Draft] Kyber KDE Parsing & Reassembly */
+#ifdef CONFIG_PQC
+if (left >= 2 && (selector == RSN_KEY_DATA_PQC_512_KEY ||
+                  selector == RSN_KEY_DATA_PQC_768_KEY)) {
+    u8 subtype = p[0];
+    u8 control = p[1];
+    u8 seq = PQC_GET_SEQ(control);
+    const u8 *data = p + 2;
+    size_t data_len = left - 2;
+    
+    /* Skip empty fragments */
+    if (data_len == 0) {
+        wpa_printf(MSG_DEBUG, "PQC: Empty fragment, ignoring");
+        return 0;
+    }
+    
+    if (subtype == PQC_KDE_SUBTYPE_PUBKEY) {
+        /* First fragment: initialize buffer */
+        if (seq == 0) {
+            if (ie->kyber_pubkey) 
+                os_free(ie->kyber_pubkey);
+            ie->kyber_pubkey = os_zalloc(PQC_PUBKEY_MAX_SIZE);
+            if (!ie->kyber_pubkey) {
+                wpa_printf(MSG_ERROR, "PQC: Memory allocation failed");
+                ie->kyber_pubkey_len = 0;
+                ie->kyber_pk_next_seq = 0xFF; /* Poison */
+                return 2;
+            }
+            ie->kyber_pubkey_len = 0;
+            ie->kyber_pk_next_seq = 0;
+        }
+        
+        /* Append only if sequence matches and buffer is safe */
+        if (ie->kyber_pubkey && seq == ie->kyber_pk_next_seq &&
+            ie->kyber_pubkey_len + data_len <= PQC_PUBKEY_MAX_SIZE) {
+            os_memcpy(ie->kyber_pubkey + ie->kyber_pubkey_len, 
+                      data, data_len);
+            ie->kyber_pubkey_len += data_len;
+            ie->kyber_pk_next_seq++;
+        } else if (!ie->kyber_pubkey) {
+            wpa_printf(MSG_DEBUG, "PQC: PubKey buffer not initialized");
+        } else if (seq != ie->kyber_pk_next_seq) {
+            wpa_printf(MSG_DEBUG,
+                       "PQC: Out-of-order PubKey (exp=%u, got=%u)",
+                       ie->kyber_pk_next_seq, seq);
+        } else {
+            wpa_printf(MSG_WARNING, "PQC: PubKey overflow prevented");
+        }
+        
+    } else if (subtype == PQC_KDE_SUBTYPE_CIPHERTEXT) {
+        /* Ciphertext - same pattern */
+        if (seq == 0) {
+            if (ie->kyber_ciphertext)
+                os_free(ie->kyber_ciphertext);
+            ie->kyber_ciphertext = os_zalloc(PQC_CIPHERTEXT_MAX_SIZE);
+            if (!ie->kyber_ciphertext) {
+                wpa_printf(MSG_ERROR, "PQC: Memory allocation failed");
+                ie->kyber_ciphertext_len = 0;
+                ie->kyber_ct_next_seq = 0xFF;
+                return 2;
+            }
+            ie->kyber_ciphertext_len = 0;
+            ie->kyber_ct_next_seq = 0;
+        }
+        
+        if (ie->kyber_ciphertext && seq == ie->kyber_ct_next_seq &&
+            ie->kyber_ciphertext_len + data_len <= PQC_CIPHERTEXT_MAX_SIZE) {
+            os_memcpy(ie->kyber_ciphertext + ie->kyber_ciphertext_len,
+                      data, data_len);
+            ie->kyber_ciphertext_len += data_len;
+            ie->kyber_ct_next_seq++;
+        } else if (!ie->kyber_ciphertext) {
+            wpa_printf(MSG_DEBUG, "PQC: CT buffer not initialized");
+        } else if (seq != ie->kyber_ct_next_seq) {
+            wpa_printf(MSG_DEBUG,
+                       "PQC: Out-of-order CT (exp=%u, got=%u)",
+                       ie->kyber_ct_next_seq, seq);
+        } else {
+            wpa_printf(MSG_WARNING, "PQC: CT overflow prevented");
+        }
+    }
+    
+    return 0;
+}
+#endif /* CONFIG_PQC */
 	return 2;
 }
 

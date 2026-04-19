@@ -247,6 +247,19 @@ static u8 * rsne_write_data(u8 *buf, size_t len, u8 *pos, int group,
 		pos += RSN_SELECTOR_LEN;
 		num_suites++;
 	}
+/* [Standard Extension Draft] AP advertises PQC capabilities */
+#ifdef CONFIG_PQC
+	if (key_mgmt & WPA_KEY_MGMT_SAE_PQC_512) {
+		RSN_SELECTOR_PUT(pos, RSN_AUTH_KEY_MGMT_SAE_PQC_512);
+		pos += RSN_SELECTOR_LEN;
+		num_suites++;
+	}
+	if (key_mgmt & WPA_KEY_MGMT_SAE_PQC_768) {
+		RSN_SELECTOR_PUT(pos, RSN_AUTH_KEY_MGMT_SAE_PQC_768);
+		pos += RSN_SELECTOR_LEN;
+		num_suites++;
+	}
+#endif /* CONFIG_PQC */
 #endif /* CONFIG_SAE */
 	if (key_mgmt & WPA_KEY_MGMT_IEEE8021X_SUITE_B) {
 		RSN_SELECTOR_PUT(pos, RSN_AUTH_KEY_MGMT_802_1X_SUITE_B);
@@ -1032,6 +1045,12 @@ wpa_validate_wpa_ie(struct wpa_authenticator *wpa_auth,
 		sm->wpa_key_mgmt = WPA_KEY_MGMT_FT_SAE;
 	else if (key_mgmt & WPA_KEY_MGMT_FT_SAE_EXT_KEY)
 		sm->wpa_key_mgmt = WPA_KEY_MGMT_FT_SAE_EXT_KEY;
+#ifdef CONFIG_PQC
+	else if (key_mgmt & WPA_KEY_MGMT_SAE_PQC_768)
+		sm->wpa_key_mgmt = WPA_KEY_MGMT_SAE_PQC_768;
+	else if (key_mgmt & WPA_KEY_MGMT_SAE_PQC_512)
+		sm->wpa_key_mgmt = WPA_KEY_MGMT_SAE_PQC_512;
+#endif /* CONFIG_PQC */
 #endif /* CONFIG_SAE */
 	else if (key_mgmt & WPA_KEY_MGMT_IEEE8021X)
 		sm->wpa_key_mgmt = WPA_KEY_MGMT_IEEE8021X;

@@ -33,7 +33,7 @@ hostap-pqc는 기존 hostapd/wpa_supplicant의 인증·키 교환 흐름에 양�
 | 레포 | 역할 |
 |------|------|
 | 프로토콜 명세서 | 제안 및 표준 기반 상세 구현 명세 <!-- TODO: 링크 --> |
-| **hostap-pqc** *(현재 레포)* | 프로토콜 실 구현체 |
+| **hostap-pqc** ✅ | 프로토콜 실 구현체 |
 | [openwrt-pqc](https://github.com/80211-PQC/openwrt-pqc) | 구현된 프로토콜을 적용한 펌웨어 |
 | [liboqs-80211](https://github.com/80211-PQC/liboqs-80211) | 802.11 환경에 맞게 최적화된 liboqs 연산 구현체 |
 

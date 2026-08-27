@@ -19,7 +19,7 @@
 
 ## 기여 범위
 
-`hostap-pqc`는 [w1.fi hostap](https://w1.fi/hostap.git)의 포크입니다.
+`hostap-pqc`는 [hostap](https://w1.fi/hostap.git)의 포크입니다.
 변경의 성격에 따라 제출 위치가 다르므로, 아래 표를 먼저 확인해 주세요.
 
 | 변경 성격 | 제출 위치 |
